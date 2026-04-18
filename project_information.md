@@ -1,5 +1,7 @@
 Hello! This is David Scott and Senthil Vel's Spring 2026 SJU Agentic AI & Machine Learning Final Project.
 
+Look at flow chart we created. This information is outdate. Still updating.
+
 **Objective:**
 Develop an agent(s) that will create and schedule social media post(s) for a specific organization’s product or event. A user should also be able to come back in the future and request the Agent create additional posts for that organization’s product or event. Those future posts should have a consistent focus and similar style based on a marketing guide (product/event guide and brand style guide) that the agent will create or had already created.
 
@@ -29,14 +31,14 @@ Develop an agent(s) that will create and schedule social media post(s) for a spe
 
 **Agents:**
 
-1. *Agent 1 - ReAct Agent and Manager** (Determine what inputs the User has provided and reacts appropriately - communicating with other Agents and User as needed)
+1. **Agent 1 - ReAct Agent and Manager** (Determine what inputs the User has provided and reacts appropriately - communicating with other Agents and User as needed)
    **First Half**
 2. *Agent 2 - Report Creator and Local Storage Manager* (Creates and Updates Company/Organization Reports, Product/Event Information Guides, and Style Guides. Manages Local Storage of Folders)
 3. *Agent 3 - Marketing Guideline Creator* (Takes the three background elements, and combines it with the input instructions and any reference examples, with langchain to create a Marketing Guideline that will be easy for the Agents in the second half of the project ot use to create the actual posts + schedule)
    **Second Half**
 1. *Agent 4 - Post Creator (use Marketing Guideline from Agent 3 to develop posts)
-2. *Agent 5* - A/B Tester (Uses Different Model to Score Agent 4's Output based on Agent 3's Marketing Guideline)
-3. *Agent 6 - Scheduler* (only activates if schedule is requested. Function Call to Google Calendar to Schedule when the approved posts from Agent 4 should be posted.)
+2. **Agent 5** - A/B Tester (Uses Different Model to Score Agent 4's Output based on Agent 3's Marketing Guideline)
+3. **Agent 6 - Scheduler** (only activates if schedule is requested. Function Call to Google Calendar to Schedule when the approved posts from Agent 4 should be posted.)
 
 
 
