@@ -1,0 +1,10 @@
+# Ignore temporary folder used in notebooks
+tmp/
+_my_workspace/
+scratch_pad/
+browser_agents/
+
+
+.env
+.venv
+venv/
