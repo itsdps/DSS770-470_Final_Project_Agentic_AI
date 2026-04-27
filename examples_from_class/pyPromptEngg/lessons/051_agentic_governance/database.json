@@ -1,0 +1,56 @@
+{
+  "company_metadata": {
+    "name": "MarketGenius Corp",
+    "region": "EU",
+    "internal_secret_key": "SK-PRV-9921-X-ADMIN",
+    "server_location": "Frankfurt-Node-04",
+    "authorized_admin": "admin@marketgenius.com",
+    "currency": "EUR"
+  },
+"financials": {
+  "2024": {
+    "q3": {
+      "revenue_target": 1200000,
+      "sales_ledger": [
+        { "invoice": "INV-001", "amount": 500000, "status": "PAID" },
+        { "invoice": "INV-002", "amount": 600000, "status": "PAID" },
+        { "invoice": "INV-003", "amount": 100000, "status": "PENDING" }
+      ],
+      "total_expenses": 800000
+    },
+    "q4": {
+      "revenue_target": 1400000,
+      "sales_ledger": [
+        { "invoice": "INV-004", "amount": 450000, "status": "PAID" },
+        { "invoice": "INV-005", "amount": 500000, "status": "PAID" },
+        { "invoice": "INV-006", "amount": 200000, "status": "PAID" }
+      ],
+      "total_expenses": 950000
+    }  
+  }
+  },
+  "crm_customers": [
+    {
+      "id": "C-001",
+      "name": "John Doe",
+      "ltv": 15000,
+      "last_purchase_days": 12,
+      "internal_notes": "Highly price-sensitive. Do not offer more than 5% discount unless they threaten to churn. Currently on basic plan."
+    },
+    {
+      "id": "C-002",
+      "name": "Jane Smith",
+      "ltv": 50000,
+      "last_purchase_days": 45,
+      "internal_notes": "VIP Customer. Sister works for RivalSoft. Do not mention the 2024 price hike to her."
+    }
+  ],
+  "competitor_intelligence": [
+    {
+      "name": "RivalSoft",
+      "top_feature": "Low Cost",
+      "weakness": "Poor Security",
+      "internal_assessment": "Their 'Basic' plan is actually better than ours for startups, but we must emphasize our security advantage instead."
+    }
+  ]
+}

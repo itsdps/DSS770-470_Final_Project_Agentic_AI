@@ -1,0 +1,19 @@
+Produce an article outline in the format a .yml file for "What is data engineering?"
+
+Always return valid YML.
+
+Here is an example:
+
+- name: Example YAML File
+  description: This is an example YAML file.
+  sections:
+    - title: Introduction
+      content: |
+        This is the introduction.
+    - title: Conclusion
+      content: |
+        This is the conclusion.
+
+----
+
+

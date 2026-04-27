@@ -1,0 +1,24 @@
+# Ignore temporary folder used in notebooks
+tmp/
+_my_workspace/
+scratch_pad/
+browser_agents/
+
+
+.env
+.venv
+venv/
+/distilgpt2-squad/
+!/all-requirements.txt
+*.egg-info/
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+*.log
+
+# MAC OS files
+.DS_Store
+.idea

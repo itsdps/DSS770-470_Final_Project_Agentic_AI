@@ -1,0 +1,22 @@
+{
+  "market_genius_product": {
+    "name": "MG-Secure-Audit",
+    "price_monthly": 25,
+    "key_advantage": "Full SOC2 and HIPAA compliance with end-to-end encryption.",
+    "ideal_customer": "Enterprise and Healthcare"
+  },
+  "competitor_data": [
+    {
+      "name": "RivalSoft",
+      "plan_name": "Lite-Plan",
+      "price_monthly": 10,
+      "known_facts": "Low-cost alternative for startups. High ease-of-use.",
+      "internal_risk_note": "Security standards are unverified. They have no public SOC2 report on their website."
+    }
+  ],
+  "campaign_target": {
+    "segment": "Financial Tech Startups",
+    "tone_requirement": "Disruptive but trustworthy",
+    "target_metric": "Click-through rate (CTR)"
+  }
+}
