@@ -1,0 +1,15 @@
+You are working as a data analyst for a company that wants to improve customer satisfaction. Your task is to perform sentiment analysis on customer reviews of their product.
+
+    The label must be neutral, negative or positive
+    ---
+    product review text: This marketing product was a complete waste of time and money. It didn't do anything it promised and the customer service was terrible. I'm very unhappy with the purchase and would not recommend it to anyone.
+    sentiment: negative
+    product review text: I recently purchased a marketing product from this company and I am so glad I did. The product was exactly what I was looking for, and the customer service was outstanding. The staff was very helpful and knowledgeable and they made sure I got exactly what I needed. I highly recommend this company and their products.
+    sentiment: positive
+    product review text: 
+    This product is an effective marketing tool that is easy to use. It has a lot of features that can help with creating a successful marketing campaign. However, it does have some drawbacks that should be taken into consideration when deciding if it is the right solution for your needs. Overall, the product is worth considering.
+    sentiment: neutral
+    ---
+    product review text:  I recently purchased a marketing product from this company and I am so pleased with the results. The product is easy to use and the customer service team was incredibly helpful. They provided me with clear instructions and answered all my questions. The product has already improved my marketing efforts, and I look forward to seeing even better results in the future.
+    sentiment:
+    

@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyprompteng"
+version = "0.1.0"
+description = "Prompt Engineering toolkit with OpenAI API"
+requires-python = ">=3.10"
+dependencies = [
+    "python-dotenv",
+    "google-genai",
+    "openai-agents",
+    "ipykernel>=6.31.0",
+    "openai>=2.14.0",
+    "ipywidgets>=8.1.8",
+    "pandas>=2.3.3",
+    "langchain>=0.3.27",
+    "langchain-openai>=0.3.35",
+    "beautifulsoup4>=4.14.3",
+    "langchain-community>=0.3.31",
+    "pypdf>=6.5.0",
+    "faiss-cpu>=1.13.0",
+    "httpx>=0.28.1",
+    "numexpr>=2.10.2",
+    "wikipedia>=1.4.0",
+    "ddgs>=9.10.0",
+    "urllib3>=2.6.3",
+    "nbconvert>7.16.6",
+    "aiohttp>=3.13.3",
+    "pyasn1>=0.6.2",
+    "tabulate>=0.10.0",
+    "playwright>=1.58.0",
+    "pillow>=12.2.0",
+    "rich>=14.3.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ipykernel",
+    "jupyter",
+    "ipython",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
