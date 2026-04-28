@@ -22,8 +22,6 @@
     pyasn1>=0.6.2
     rich>=14.3.3
     
-
-
 # Core
 openai>=1.30.0
 python-dotenv>=1.0.0
@@ -40,4 +38,5 @@ pypdf>=6.5.0
 # Google Calendar scheduling (optional)
 google-api-python-client>=2.130.0
 google-auth>=2.29.0
+
 
