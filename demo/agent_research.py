@@ -59,7 +59,11 @@ Observation will be the result of that tool call.
 IMPORTANT:
 - You MUST perform at least one tool call before producing a final answer.
 - Always base your final report on Observations, not on assumptions.
-- If the first search returns thin results, do a second search with a different query.
+- If the first search returns thin results (very little specific information),
+  do a SECOND search with a different, more specific query before answering.
+- For product research: search for the product name + company name together,
+  then search for the product name + 'price' or 'flavors' or 'description' separately.
+- Do NOT stop after one search if the results are vague or generic.
 - If a search returns nothing and no document is provided, use the ask tool.
 - If the user provides a URL, use fetch_url rather than web_search.
 - If a document was uploaded, use read_document before searching the web.
@@ -390,7 +394,8 @@ class ResearchAgent:
     def resolve(self, company_name: str, product_name: str,
                 provided_url: str = None, uploaded_file: str = None,
                 company_url: str = None, company_file: str = None,
-                product_url: str = None, product_file: str = None):
+                product_url: str = None, product_file: str = None,
+                skip_name_resolution: bool = False):
         """
         Return (company_report, product_report, company_name, product_name).
 
@@ -404,14 +409,10 @@ class ResearchAgent:
             provided_url:  Optional URL the user gave for the company or product
             uploaded_file: Optional path to an uploaded document
         """
-        # ── Resolve official company name before anything else ─────────────────
-        # Converts "Rita's" → "Rita's Water Ice", prevents duplicate folders,
-        # and improves search quality since official names return better results.
-        company_name = self._resolve_official_name(company_name, product_name)
-
-        # ── Resolve official product name ─────────────────────────────────────
-        # Converts "Melon" → "Kiwi Melon" via fuzzy match against existing products.
-        product_name = self._resolve_official_product_name(company_name, product_name)
+        # ── Resolve official names (skip if already done by caller) ───────────
+        if not skip_name_resolution:
+            company_name = self._resolve_official_name(company_name, product_name)
+            product_name = self._resolve_official_product_name(company_name, product_name)
 
         has_company = self.storage.company_exists(company_name)
         has_product = self.storage.product_exists(company_name, product_name)
@@ -733,6 +734,50 @@ class ResearchAgent:
         )
         raw    = resp.choices[0].message.content.strip()
         report = _safe_json(raw)
+        report["product_name"] = product_name
+
+        # ── Null field check — if more than 1 field is null, ask user for help ──
+        # Rather than auto-searching again, we ask the user for a URL or document
+        # so they stay in control and can provide the most accurate source.
+        expected_fields = ["product_description", "price_range", "target_market",
+                           "key_features", "theme", "season_availability",
+                           "flavors_or_variants"]
+        null_count = sum(1 for f in expected_fields if not report.get(f))
+        if null_count > 1:
+            print(f"\n  ⚠️  Product report has {null_count} empty fields after research.")
+            print(f"  Missing: {[f for f in expected_fields if not report.get(f)]}")
+            followup = input(
+                f"  Do you have a URL or file with more info about [{product_name}]? "
+                f"(paste it, or Enter to continue with what we have): "
+            ).strip().strip('"').strip("'")
+            if followup:
+                # Run one more pass with the user-provided source
+                extra_url  = followup if followup.startswith("http") else None
+                extra_file = followup if not followup.startswith("http") else None
+                print(f"  🔍 Researching with additional source…")
+                followup_result = (
+                    self._tool_fetch_url(extra_url) if extra_url
+                    else self._tool_read_document(extra_file)
+                )
+                if followup_result:
+                    messages.append({"role": "assistant", "content": raw})
+                    messages.append({"role": "user", "content":
+                        f"Additional information from user-provided source:\n"
+                        f"{followup_result[:2000]}\n\n"
+                        f"Rewrite the product report using all information gathered. "
+                        f"Return ONLY valid JSON."
+                    })
+                    resp2 = self.client.chat.completions.create(
+                        model="gpt-4o",
+                        messages=messages,
+                        temperature=0.2,
+                    )
+                    raw2    = resp2.choices[0].message.content.strip()
+                    report2 = _safe_json(raw2)
+                    if report2 and (report2.get("product_description") or report2.get("product_name")):
+                        report  = report2
+                        print(f"  ✅ Report updated with additional source.")
+
         report["product_name"] = product_name
         self.storage.save_product_report(company_name, product_name, report)
         return report

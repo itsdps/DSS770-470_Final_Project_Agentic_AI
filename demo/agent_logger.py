@@ -143,16 +143,30 @@ class Logger:
             img_audit = post.get("audit_result", {})
             has_image = post.get("image_bytes") is not None
             if not has_image:
-                lines.append("  IMAGE AUDIT:    \u2014 No image generated")
+                went_nuclear = img_audit.get("went_nuclear", False)
+                lines.append(f"  IMAGE AUDIT:    — No image generated"
+                             + (" [nuclear corrections applied]" if went_nuclear else ""))
+                img_reason = img_audit.get("reason", "")
+                if img_reason:
+                    lines.append(f"    Reason: {img_reason}")
             else:
                 img_passed = img_audit.get("passed", True)
                 img_reason = img_audit.get("reason", "")
+                went_nuclear = img_audit.get("went_nuclear", False)
                 if img_passed:
-                    lines.append("  IMAGE AUDIT:    \u2705 PASSED")
+                    lines.append("  IMAGE AUDIT:    ✅ PASSED"
+                                + (" [nuclear corrections applied]" if went_nuclear else ""))
                 else:
-                    lines.append(f"  IMAGE AUDIT:    \u274c FAILED (post saved without image)")
+                    lines.append(f"  IMAGE AUDIT:    ❌ FAILED (post saved without image)")
                     lines.append(f"    Reason: {img_reason}")
                     all_passed = False
+
+            # Correction prompt history
+            corrections = img_audit.get("correction_history", [])
+            if corrections:
+                lines.append("  CORRECTION PROMPTS SENT:")
+                for j, c in enumerate(corrections, 1):
+                    lines.append(f"    Attempt {j}: {c}")
 
         lines += [
             "",

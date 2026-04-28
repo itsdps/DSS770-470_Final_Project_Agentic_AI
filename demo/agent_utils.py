@@ -56,6 +56,8 @@ def print_receipt(receipt: dict):
     print("  📋  RECEIPT")
     print("=" * 45)
     for k, v in receipt.items():
+        if k.startswith("_"):
+            continue
         print(f"  {k:<22}: {v}")
     print("=" * 45)
 
@@ -80,6 +82,7 @@ def parse_request(text: str) -> dict:
         → images: "AI Generated"  (explicit override)
     """
     receipt = {
+        "_raw_request":    text,
         "company":         "",
         "product":         "",
         "platforms":       "Instagram",
@@ -90,11 +93,17 @@ def parse_request(text: str) -> dict:
         "additional_info": "",
     }
 
-    # Number of posts — finds ALL "N platform posts" patterns and sums them
-    # e.g. "1 Instagram post and 2 Twitter posts" → num_posts = 3
-    all_counts = re.findall(r"\b(\d+)\s+(?:\w+\s+)?posts?", text, re.I)
-    if all_counts:
-        receipt["num_posts"] = str(sum(int(n) for n in all_counts))
+    # Number of posts — two strategies combined:
+    # 1. Count N+platform pairs: '1 Instagram and 2 Twitter' → 3
+    # 2. Count N+posts directly: '3 posts' → 3
+    platform_counts = re.findall(
+        r"\b(\d+)\s+(instagram|twitter|blog|x)\b", text, re.I
+    )
+    direct_counts = re.findall(r"\b(\d+)\s+(?:\w+\s+)?posts?", text, re.I)
+    if platform_counts:
+        receipt["num_posts"] = str(sum(int(n) for n, _ in platform_counts))
+    elif direct_counts:
+        receipt["num_posts"] = str(sum(int(n) for n in direct_counts))
 
     # Platform(s)
     platforms_found = re.findall(
@@ -219,6 +228,15 @@ def interactive_receipt_editor(receipt: dict) -> dict:
             matched_key = key_map.get(field.replace(" ", "_")) or key_map.get(field)
 
             if matched_key:
+                # Block editing num_posts when multiple platforms are specified
+                # since the count is derived from the per-platform request
+                if matched_key == "num_posts":
+                    platforms = [p.strip() for p in receipt.get("platforms", "").split(",")]
+                    if len(platforms) > 1:
+                        print(f"  ⚠️  num_posts is locked when multiple platforms are specified.")
+                        print(f"     Current count ({receipt['num_posts']}) is the sum of posts per platform.")
+                        print(f"     To change counts, re-enter your request.")
+                        continue
                 # Guardrail on the images field
                 if matched_key == "images":
                     normalized = _normalize_image_value(value)
