@@ -1,3 +1,4 @@
+    # Class Requirements packages
     python-dotenv
     google-genai
     openai-agents
@@ -20,6 +21,23 @@
     aiohttp>=3.13.3
     pyasn1>=0.6.2
     rich>=14.3.3
-    httpx>=0.27.0
-    google-api-python-client>=2.130.0
-    google-auth>=2.29.0
+    
+
+
+# Core
+openai>=1.30.0
+python-dotenv>=1.0.0
+
+# Terminal UI (same as class orchestrator.py)
+rich>=14.0.0
+
+# Web search (free, no API key — same as class requirements.txt)
+ddgs>=9.10.0
+
+# PDF document reading (for read_document tool)
+pypdf>=6.5.0
+
+# Google Calendar scheduling (optional)
+google-api-python-client>=2.130.0
+google-auth>=2.29.0
+
