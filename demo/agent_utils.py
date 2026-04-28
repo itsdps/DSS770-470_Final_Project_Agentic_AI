@@ -90,10 +90,11 @@ def parse_request(text: str) -> dict:
         "additional_info": "",
     }
 
-    # Number of posts
-    m = re.search(r"\b(\d+)\s+post", text, re.I)
-    if m:
-        receipt["num_posts"] = m.group(1)
+    # Number of posts — finds ALL "N platform posts" patterns and sums them
+    # e.g. "1 Instagram post and 2 Twitter posts" → num_posts = 3
+    all_counts = re.findall(r"\b(\d+)\s+(?:\w+\s+)?posts?", text, re.I)
+    if all_counts:
+        receipt["num_posts"] = str(sum(int(n) for n in all_counts))
 
     # Platform(s)
     platforms_found = re.findall(
@@ -116,11 +117,21 @@ def parse_request(text: str) -> dict:
         receipt["schedule"] = "Yes"
 
     # Company & product — look for "for <Company> <Product>"
+    # Company boundary: word ending in apostrophe+s (e.g. "Rita's") or first word
     m = re.search(r"\bfor\s+(.+?)(?:\s+in\b|\s*\+|\s*\.|\s*$)", text, re.I)
     if m:
         entity = m.group(1).strip()
         parts  = entity.split()
-        if len(parts) >= 3:
+        # Find company boundary — word ending in "'s" is likely the company name
+        apostrophe_idx = next(
+            (i for i, p in enumerate(parts) if p.endswith("'s") or p.endswith("\u2019s")),
+            None
+        )
+        if apostrophe_idx is not None and apostrophe_idx + 1 < len(parts):
+            # e.g. "Rita's Kiwi Melon" → company="Rita's", product="Kiwi Melon"
+            receipt["company"] = parts[apostrophe_idx]
+            receipt["product"] = " ".join(parts[apostrophe_idx + 1:])
+        elif len(parts) >= 3:
             receipt["company"] = " ".join(parts[:2])
             receipt["product"] = " ".join(parts[2:])
         elif len(parts) == 2:

@@ -22,6 +22,94 @@ from pathlib import Path
 from openai import OpenAI   # sync client — threads handle parallelism, not async
 
 
+# ── Image audit prompt ───────────────────────────────────────────────────────
+# Prompt Engineering artifact — this is the guardrail for generated images.
+# GPT Vision checks the image against these criteria and returns a pass/fail.
+# Good before/after for report: vague criteria ("looks good?") vs specific
+# criteria below. The specificity of the rules directly affects what gets caught.
+# Mentioned in Slide 6 (Ethics & Guardrails).
+
+IMAGE_AUDIT_PROMPT = """
+You are a strict brand compliance auditor reviewing a social media image.
+Examine the image carefully against ALL three criteria below.
+
+---
+CRITERIA 1 — LOGO & BRANDING
+{logo_section}
+
+If a logo or brand name is visible in the image:
+- It must clearly match the description above (if provided).
+- Text in the logo must not be distorted, misspelled, or invented.
+- If the logo looks clearly WRONG (different colors, wrong name, made-up design),
+  FAIL the image. If you are simply unsure, PASS — do not fail on uncertainty alone.
+
+---
+CRITERIA 2 — FACTUAL ACCURACY
+The image must not display outright false or impossible claims. FAIL if you see:
+- Promises of free money or unrealistic cash rewards (e.g. "Win $1000!")
+- "100% off" or similar impossible discounts
+- Medical or health claims not supported by the product context
+- Pricing that clearly contradicts the product context below
+Creative phrasing and marketing enthusiasm are fine — only fail on clear lies.
+
+Product context: {context}
+
+---
+CRITERIA 3 — TEXT LEGIBILITY (MOST IMPORTANT — ZERO TOLERANCE)
+Look at every piece of text in the image, especially near the TOP and BOTTOM edges.
+FAIL immediately if ANY of these are true:
+- ANY letter of ANY word touches or goes beyond the image edge — even 1 pixel
+- The top of any letter is clipped, even slightly (e.g. "Taste of" losing the tops of letters)
+- Any word is partially outside the frame
+- Text at the very top or bottom of the image where ascenders or descenders are cut
+DO NOT pass an image just because the word is still readable — if any part of any
+letter is cut off, it FAILS. There are NO exceptions for text at edges.
+Decorative non-text elements at edges are fine. Text is never fine if clipped.
+
+---
+IMPORTANT: If you FAIL the image, your reason must be specific and actionable.
+  BAD reason:  "text is cut off"
+  GOOD reason: "The words 'Taste of' at the top have their letter tops clipped by
+                the frame edge. Move all text at least 80px from the top edge."
+
+Respond ONLY with a JSON object — no markdown fences:
+{{"passed": true or false, "reason": "specific actionable reason if failed, else empty string"}}
+""".strip()
+
+MAX_AUDIT_RETRIES = 2   # max times to retry after audit failure before cancelling
+
+# ── Caption audit prompt ──────────────────────────────────────────────────────
+# Narrow guardrail — only checks for outright lies and hateful/harmful language.
+# Quality, creativity, and brand voice are handled by the A/B scorer.
+# This is a veto-only check: passes unless something is genuinely harmful.
+# Slide 6 guardrail — second layer alongside the image auditor.
+
+CAPTION_AUDIT_PROMPT = """
+You are a content safety auditor reviewing a social media caption.
+Your job is narrow — you are NOT judging quality or creativity.
+Only FAIL the caption if it contains:
+
+1. OUTRIGHT LIES: False factual claims that could mislead customers.
+   Examples: fake prices, impossible guarantees, fabricated statistics,
+   claims the product can do something it clearly cannot.
+   Creative marketing language and enthusiasm are FINE — only fail on clear lies.
+
+2. HATEFUL OR HARMFUL LANGUAGE: Anything offensive, discriminatory, or
+   inappropriate for a public social media post. This includes slurs,
+   hate speech, content targeting any group, or anything that could
+   harm or offend a reasonable reader.
+
+Platform: {platform}
+Product context: {context}
+
+Caption to review:
+{caption}
+
+Respond ONLY with a JSON object — no markdown fences:
+{{"passed": true or false, "reason": "specific reason if failed, else empty string"}}
+""".strip()
+
+
 class BaseAgent:
     """
     Provides a shared OpenAI client and agent name to all platform agents.
@@ -166,22 +254,23 @@ class BaseAgent:
     # ── Image generation methods ──────────────────────────────────────────────
 
     def _build_image_prompt(self, caption: str, image_context: str,
-                             style_vibe: str = "") -> str:
+                             style_vibe: str = "",
+                             logo_description: str = "",
+                             additional_notes: str = "") -> str:
         """
         Builds the instruction sent to DALL-E or the image edit endpoint.
 
         KEY DESIGN DECISION: caption is always included so the image and
         caption feel like one cohesive post, not two independent pieces.
-        This is the main prompt engineering artifact for the image feature —
-        a good candidate for a before/after in the report:
-          Before: just image_context alone → generic image, no relation to caption
-          After:  caption + image_context + style vibe → image that tells the
-                  same story as the caption
+        logo_description ensures DALL-E uses the real logo rather than
+        inventing one — this was the main cause of logo errors.
 
         Args:
-            caption:       The final caption text from _ab_loop()
-            image_context: Visual description generated alongside the caption
-            style_vibe:    Optional vibe from the style guide (e.g. "fun, summery")
+            caption:           Final caption text from _ab_loop()
+            image_context:     Visual description generated alongside caption
+            style_vibe:        Optional brand vibe from style guide
+            logo_description:  Company logo description from company report
+            additional_notes:  Additional post notes from receipt
         """
         prompt = (
             f"Create a vibrant, eye-catching social media image.\n\n"
@@ -190,16 +279,38 @@ class BaseAgent:
         )
         if style_vibe:
             prompt += f"\nBrand vibe: {style_vibe}\n"
+
+        # Logo guidance — tells DALL-E exactly what the logo looks like
+        # so it doesn't invent one. additional_notes takes priority over
+        # company report logo_description (same priority as auditor).
+        notes_mention_logo = any(
+            word in additional_notes.lower()
+            for word in ("logo", "cup", "branding", "brand", "color", "colour", "sign")
+        ) if additional_notes else False
+
+        if additional_notes and notes_mention_logo:
+            prompt += f"\n\nBrand notes: {additional_notes}\n"
+        elif logo_description:
+            prompt += (
+                f"\n\nLOGO ACCURACY IS CRITICAL: If the brand logo appears in the image, "
+                f"it MUST match this exact description: {logo_description}. "
+                f"Do not invent a different logo or use generic branding.\n"
+            )
+
         prompt += (
-            f"\nThe image should feel cohesive with the caption — "
-            f"same mood, same energy. No text overlays unless specifically "
-            f"described in the visual direction. Photorealistic style."
+            f"\nTEXT PLACEMENT IS CRITICAL: Any text in the image must be FULLY "
+            f"inside the frame with NO clipping of any letters. Keep ALL text "
+            f"at least 100px away from every edge (top, bottom, left, right). "
+            f"Never place text so close to an edge that ascenders or descenders "
+            f"could be cut off.\n"
+            f"Photorealistic style."
         )
         return prompt
 
     def _generate_image(self, caption: str, image_context: str,
                          style_vibe: str = "",
-                         reference_images: list[Path] | None = None) -> bytes | None:
+                         reference_images: list[Path] | None = None,
+                         previous_rejection: str = "") -> bytes | None:
         """
         Generates a new image using DALL-E 3.
 
@@ -226,7 +337,19 @@ class BaseAgent:
         if vision_notes:
             full_context = f"{image_context}\n\nStyle inspiration from reference images:\n{vision_notes}"
 
-        image_prompt = self._build_image_prompt(caption, full_context, style_vibe)
+        # Inject audit feedback — mirrors orchestrator_loop.py previous_rejections pattern
+        if previous_rejection:
+            full_context = (
+                f"CORRECTION REQUIRED — previous image was rejected:\n"
+                f"{previous_rejection}\n\n"
+                f"Fix the above issue in this new image.\n\n"
+                f"{full_context}"
+            )
+        image_prompt = self._build_image_prompt(
+            caption, full_context, style_vibe,
+            logo_description=self.__dict__.get("_logo_description", ""),
+            additional_notes=self.__dict__.get("_additional_notes", ""),
+        )
 
         print(f"  🎨 Generating image with DALL-E 3…")
         try:
@@ -246,7 +369,8 @@ class BaseAgent:
 
     def _enhance_image(self, source_image_path: Path,
                         caption: str, image_context: str,
-                        style_vibe: str = "") -> bytes | None:
+                        style_vibe: str = "",
+                        previous_rejection: str = "") -> bytes | None:
         """
         Enhances a real photo using OpenAI's image edit endpoint.
 
@@ -263,16 +387,30 @@ class BaseAgent:
         Returns:
             Raw PNG bytes of the enhanced image, or None if it failed.
         """
+        # Inject audit feedback — mirrors orchestrator_loop.py previous_rejections pattern
+        correction_block = (
+            f"CORRECTION REQUIRED — previous version was rejected:\n"
+            f"{previous_rejection}\n"
+            f"You MUST fix the above issue in this new version.\n\n"
+        ) if previous_rejection else ""
+
         edit_instruction = (
+            f"{correction_block}"
             f"Enhance this photo for a social media post.\n"
             f"The post caption reads: \"{caption}\"\n\n"
+            f"CRITICAL TEXT PLACEMENT RULES — follow these exactly:\n"
+            f"  - Place ALL text at least 120px from EVERY edge (top, bottom, left, right)\n"
+            f"  - The top edge is especially dangerous — never place text within 150px of the top\n"
+            f"  - Every single letter of every word must be 100% inside the frame\n"
+            f"  - If in doubt, move text further toward the center\n"
+            f"  - Do NOT add large headline text near the top of the image\n\n"
             f"Add elements that match the caption's energy and message — "
-            f"for example expressive text effects, color grading, subtle overlays, "
-            f"or graphic elements. Keep the real photo and people in it intact.\n\n"
+            f"color grading, subtle overlays, or graphic elements. "
+            f"Keep the real photo intact.\n\n"
             f"Visual direction: {image_context}\n"
         )
         if style_vibe:
-            edit_instruction += f"Brand vibe: {style_vibe}"
+            edit_instruction += f"\nBrand vibe: {style_vibe}"
 
         print(f"  🎨 Enhancing photo: {source_image_path.name}…")
         try:
@@ -280,14 +418,21 @@ class BaseAgent:
             # We open the file as bytes — OpenAI handles the rest
             with open(source_image_path, "rb") as img_file:
                 response = self.openai_client.images.edit(
+                    model="gpt-image-1",   # required — OpenAI image edit model
                     image=img_file,
                     prompt=edit_instruction,
                     size="1024x1024",
-                    response_format="b64_json",
                     n=1,
                 )
+            # gpt-image-1 may return b64_json or url depending on settings
             image_b64 = response.data[0].b64_json
-            return base64.b64decode(image_b64)
+            if image_b64:
+                return base64.b64decode(image_b64)
+            url = getattr(response.data[0], "url", None)
+            if url:
+                import httpx
+                return httpx.get(url).content
+            return None
         except Exception as e:
             print(f"  ⚠️  Image enhancement failed: {e}")
             print(f"       Falling back to DALL-E generation…")
@@ -296,6 +441,40 @@ class BaseAgent:
                 caption, image_context, style_vibe,
                 reference_images=[source_image_path]
             )
+
+    def _audit_caption(self, caption: str, platform: str,
+                       context: str = "") -> dict:
+        """
+        Caption safety auditor — narrow guardrail checking only:
+          1. Outright lies / false claims
+          2. Hateful or harmful language
+
+        Returns {"passed": bool, "reason": str}
+        Does NOT check quality, creativity, or brand voice — A/B scorer handles those.
+        """
+        prompt = CAPTION_AUDIT_PROMPT.format(
+            platform=platform.upper(),
+            context=context[:400],
+            caption=caption,
+        )
+        try:
+            resp = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",   # simple classification — doesn't need gpt-4o
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
+            )
+            raw = resp.choices[0].message.content.strip()
+            raw = __import__("re").sub(
+                r"^```(?:json)?|```$", "", raw, flags=__import__("re").MULTILINE
+            ).strip()
+            result = __import__("json").loads(raw)
+            return {
+                "passed": bool(result.get("passed", True)),
+                "reason": result.get("reason", "")
+            }
+        except Exception as e:
+            print(f"  ⚠️  Caption audit error: {e} — defaulting to passed.")
+            return {"passed": True, "reason": ""}
 
     def _describe_images_for_reference(self, image_paths: list[Path]) -> str:
         """
@@ -346,6 +525,71 @@ class BaseAgent:
         except Exception as e:
             print(f"  ⚠️  GPT Vision description failed: {e}")
             return ""
+
+
+    def _audit_image(self, image_bytes: bytes, context: str,
+                     logo_description: str = "",
+                     additional_notes: str = "") -> dict:
+        """
+        GPT Vision compliance auditor for generated/enhanced images.
+        Checks: logo correctness, factual accuracy, text legibility.
+
+        Logo check priority:
+          1. additional_notes (from receipt) — if it mentions logo, use that
+          2. logo_description (from company report) — fallback
+          3. No logo check if both are empty
+
+        The IMAGE_AUDIT_PROMPT at the top of this file is the prompt
+        engineering artifact — specificity of criteria directly affects
+        what gets caught. Good before/after story for the report.
+
+        Returns:
+            {"passed": bool, "reason": str}
+        """
+        encoded = base64.b64encode(image_bytes).decode("utf-8")
+        mime = "image/png" if image_bytes[:4] == b"\x89PNG" else "image/jpeg"
+
+        # Build logo section — additional_notes takes priority
+        notes_mention_logo = any(
+            word in additional_notes.lower()
+            for word in ("logo", "cup", "branding", "brand", "color", "colour", "sign")
+        )
+        if additional_notes and notes_mention_logo:
+            logo_section = f"Additional notes from the post request: {additional_notes}"
+        elif logo_description:
+            logo_section = f"Company logo description: {logo_description}"
+        else:
+            logo_section = "No logo description available — skip logo check."
+
+        audit_prompt = IMAGE_AUDIT_PROMPT.format(
+            context=context[:500],
+            logo_section=logo_section,
+        )
+
+        content = [
+            {"type": "text", "text": audit_prompt},
+            {"type": "image_url",
+             "image_url": {"url": f"data:{mime};base64,{encoded}"}}
+        ]
+
+        try:
+            resp = self.openai_client.chat.completions.create(
+                model="gpt-4o",   # needs Vision capability
+                messages=[{"role": "user", "content": content}],
+                temperature=0,
+            )
+            raw = resp.choices[0].message.content.strip()
+            raw = __import__("re").sub(
+                r"^```(?:json)?|```$", "", raw, flags=__import__("re").MULTILINE
+            ).strip()
+            result = __import__("json").loads(raw)
+            return {
+                "passed": bool(result.get("passed", True)),
+                "reason": result.get("reason", "")
+            }
+        except Exception as e:
+            print(f"  ⚠️  Audit error: {e} — defaulting to passed.")
+            return {"passed": True, "reason": ""}
 
 
 # ── Module-level helpers ──────────────────────────────────────────────────────

@@ -4,3 +4,63 @@ Output of Product Report is Action:
   "raw": "Action: web_search: Kiwi Melon Rita's Italian Ice product description price range target market key features theme availability variants",
   "product_name": "Kiwi Melon"
 }
+
+also increase from 3 to 6 to get more information
+
+
+sentiment analysis, for style guide for options instead of three to give more naunce for user:
+
+originally after adding references: 
+  1. keep as is but use references to influence post directly
+  2. light update - blend them a bit but keep mostly the same style
+
+
+
+
+6 failing still:
+
+
+  ⏱️  Starting parallel execution for post 1/1...
+[Instagram Specialist] Starting Instagram post #1...
+      [Instagram Specialist] Post 1 — attempt 1: score 9.5/10
+  ✅  [Instagram Specialist] Post 1 done — final score 9.5
+
+  📸 Using image: Boardwalk.jpg
+  1. Enhance real photo  2. Use as inspiration
+  🎨 Enhancing photo: Boardwalk.jpg…
+  🔍 Auditing image (attempt 1/3)…
+  ⚠️  Audit failed: The word 'unforgettable' at the bottom has its descender clipped by the frame edge. Move all text at least 80px from the bottom edge.
+  🔄 Regenerating with correction…
+  🎨 Enhancing photo: Boardwalk.jpg…
+  🔍 Auditing image (attempt 2/3)…
+  ⚠️  Audit failed: The words 'wárm, with those warm, delightful memories with a twist in our brand-new Kiwi Melon' at the top have their letter tops clipped by the frame edge. Move all text at least 80px from the top edge.
+  🔄 Regenerating with correction…
+  🎨 Enhancing photo: Boardwalk.jpg…
+  🔍 Auditing image (attempt 3/3)…
+  ⚠️  Audit failed: The words 'Italian Ice' in the second paragraph are misspelled as 'Itallan ice' and 'Mejon' instead of 'Melon'. Additionally, 'Frozen Custard' is misspelled as 'Frozen Custad'. Correct these spelling errors to align with brand standards.
+  ❌ Failed audit after 3 attempts.
+[Instagram Specialist] Finished Instagram post #1.
+  ✨ Post 1 done in 158.8s
+
+✨ All agents finished in 158.76 seconds
+
+
+
+
+
+# Example: view a company report directly in the notebook
+# Change 'company' and 'product' to match your AI Storage folder
+company = "Rita's Water Ice"
+product = "Kiwi Melon"
+
+if storage.company_exists(company):
+    report = storage.load_company_report(company)
+    print(f"Company: {report.get('company_name')}")
+    print(f"Industry: {report.get('industry')}")
+    print(f"Brand voice: {report.get('brand_voice')}")
+    print()
+    print(json.dumps(report, indent=2))
+else:
+    print(f"No company report found for [{company}]. Run Step 4 first.")
+
+No company report found for [Rita's Water Ice]. Run Step 4 first.

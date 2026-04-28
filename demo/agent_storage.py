@@ -148,6 +148,7 @@ class Storage:
         Validates and copies a screenshot into the references/ subfolder.
         Same guardrail as add_image_to_library — .png and .jpg/.jpeg only.
         """
+        source_path = source_path.strip().strip('"').strip("'")
         valid, reason = self.validate_image(source_path)
         if not valid:
             print(f"  ❌ {reason}")
@@ -174,7 +175,12 @@ class Storage:
         Guardrail: checks that a file exists and has an allowed extension.
         Returns (True, "") if valid, or (False, reason) if not.
         Called before copying any image into the Images folder.
+        Strips surrounding quotes automatically so paths with spaces work
+        whether the user types them with or without quotes.
         """
+        # Strip surrounding quotes — handles paths pasted with or without quotes
+        # e.g. "C:\path with spaces\file.jpg" -> C:\path with spaces\file.jpg
+        file_path = file_path.strip().strip('"').strip("'")
         p = Path(file_path)
         if not p.exists():
             return False, f"File not found: {file_path}"
@@ -192,6 +198,7 @@ class Storage:
         Returns the new Path if successful, None if the file was rejected.
         The original file is never moved — a copy is made into the library.
         """
+        source_path = source_path.strip().strip('"').strip("'")
         valid, reason = self.validate_image(source_path)
         if not valid:
             print(f"  ❌ {reason}")
