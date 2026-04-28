@@ -22,6 +22,7 @@ import textwrap
 from pathlib import Path
 
 from agent_base import BaseAgent, _safe_json
+from agent_utils import IMAGE_PLATFORM_DEFAULTS
 
 
 # ── Helper: build context string from reports ─────────────────────────────────
@@ -52,9 +53,17 @@ def build_context(company: dict, product: dict, style: dict,
 
 def parse_platforms(platforms) -> list[str]:
     """Turn 'Instagram, Twitter' or ['Instagram','Twitter'] into ['instagram','twitter']."""
+    supported = {"instagram", "twitter", "x", "blog"}
     if isinstance(platforms, list):
-        return [p.lower().strip() for p in platforms]
-    return [p.lower().strip() for p in str(platforms).split(",")]
+        parsed = [p.lower().strip() for p in platforms]
+    else:
+        parsed = [p.lower().strip() for p in str(platforms).split(",")]
+
+    for p in parsed:
+        if p and p not in supported:
+            print(f"  ⚠️  Platform '{p}' is not supported yet. "
+                  f"Supported: Instagram, Twitter/X, Blog. Skipping.")
+    return parsed
 
 
 # ── Shared image handling helper ──────────────────────────────────────────────
@@ -140,7 +149,9 @@ def _handle_image(agent: BaseAgent, post: dict, image_mode: str,
                   selected_images: list, style_vibe: str,
                   context: str = "",
                   logo_description: str = "",
-                  additional_notes: str = "") -> tuple:
+                  additional_notes: str = "",
+                  enhance_as_inspiration: bool = False,
+                  brand_context: str = "") -> tuple:
     """
     Routes to the right image method, then runs the audit loop.
     Always returns a tuple: (image_bytes | None, audit_result dict).
@@ -156,12 +167,18 @@ def _handle_image(agent: BaseAgent, post: dict, image_mode: str,
     # Store on agent so _build_image_prompt can access logo/notes
     agent._logo_description  = logo_description
     agent._additional_notes  = additional_notes
+    agent._brand_context     = brand_context
 
     # ── No image ─────────────────────────────────────────────────────────────
     if image_mode == "No":
         return None, {"passed": True, "reason": ""}
 
-    # ── Provided Images — ask once before the audit loop ─────────────────────
+    # ── Provided Images — use_enhance already decided before parallel execution ──
+    # enhance_as_inspiration was asked once in Step 7.6 before threads started.
+    # chosen and use_enhance initialized here so they're always defined.
+    chosen      = None
+    use_enhance = not enhance_as_inspiration
+
     if image_mode == "Provided Images":
         if not selected_images:
             print("  ℹ️  No images selected, falling back to AI Generated…")
@@ -169,14 +186,11 @@ def _handle_image(agent: BaseAgent, post: dict, image_mode: str,
         else:
             chosen = _pick_image(selected_images)
             print(f"\n  📸 Using image: {chosen.name}")
-            print("  1. Enhance real photo  2. Use as inspiration")
-            choice      = input("  Enter 1 or 2 (default 1): ").strip()
-            use_enhance = (choice != "2")
 
     # ── Audit loop — mirrors orchestrator_loop.py revision pattern ──────────
-    # previous_rejection is passed directly into _enhance_image/_generate_image
-    # so the correction appears at the TOP of the instruction, not buried in context.
-    previous_rejection = ""
+    # All prior rejections are stacked — each becomes a short punchy correction
+    # line at the top of the prompt so the model cannot miss any of them.
+    all_rejections = []   # grows with each failed attempt
 
     for audit_attempt in range(MAX_AUDIT_RETRIES + 1):
 
@@ -188,19 +202,22 @@ def _handle_image(agent: BaseAgent, post: dict, image_mode: str,
                     caption=caption,
                     image_context=image_context,
                     style_vibe=style_vibe,
-                    previous_rejection=previous_rejection,
+                    previous_rejections=all_rejections,
+                    brand_context=brand_context,
                 )
             else:
                 image_bytes = agent._generate_image(
                     caption, image_context, style_vibe,
                     reference_images=selected_images,
-                    previous_rejection=previous_rejection,
+                    previous_rejection=all_rejections,
+                    brand_context=brand_context,
                 )
         else:
             image_bytes = agent._generate_image(
                 caption, image_context, style_vibe,
                 reference_images=selected_images or None,
-                previous_rejection=previous_rejection,
+                previous_rejection=all_rejections,
+                brand_context=brand_context,
             )
 
         if not image_bytes:
@@ -216,114 +233,61 @@ def _handle_image(agent: BaseAgent, post: dict, image_mode: str,
 
         if audit["passed"]:
             print("  ✅ Image passed audit.")
-            return image_bytes, {"passed": True, "reason": ""}
+            return image_bytes, {"passed": True, "reason": "", "correction_history": all_rejections}
         else:
-            print(f"  ⚠️  Audit failed: {audit['reason']}")
-            if audit_attempt < MAX_AUDIT_RETRIES:
+            reason = audit["reason"]
+            fix    = audit.get("fix", "").upper()[:60] if audit.get("fix") else ""
+            # Show human-readable reason to user — if GPT collapsed reason/fix,
+            # fall back to a generic description based on the fix content
+            display_reason = reason if reason and reason.upper() != fix else \
+                             f"Image did not pass audit ({fix.lower() if fix else 'see fix'})"
+            print(f"  ⚠️  Audit failed: {display_reason}")
+
+            if audit_attempt == 0:
+                # Attempt 1 → fail → concise fix
                 print("  🔄 Regenerating with correction…")
-                # Store rejection to inject at top of next instruction
-                previous_rejection = audit["reason"]
+                if fix:
+                    all_rejections.append(fix)
+                    print(f"     → Sending: {fix}")
+
+            elif audit_attempt == 1:
+                # Attempt 2 → fail → emotional urgency
+                print("  🔄 Regenerating with stronger correction…")
+                reason_lower = reason.lower()
+                if any(w in reason_lower for w in ("clip", "cut", "edge", "top", "bottom", "border")):
+                    msg = "DON'T LET TEXT BE CUT OFF OR I WILL BE FIRED — KEEP ALL TEXT FAR FROM EVERY EDGE"
+                elif any(w in reason_lower for w in ("spell", "misspell", "typo")):
+                    msg = "DO NOT MISSPELL WORDS OR I WILL BE FIRED — CHECK EVERY LETTER"
+                elif any(w in reason_lower for w in ("logo", "brand")):
+                    msg = "DO NOT INVENT LOGOS OR I WILL BE FIRED — MATCH BRAND EXACTLY"
+                else:
+                    msg = f"THIS IS CRITICAL — FIX THIS NOW OR I WILL BE FIRED: {fix}"
+                all_rejections.append(msg)
+                print(f"     → Sending: {msg}")
+
+            elif audit_attempt == 2:
+                # Attempt 3 → nuclear → generate with NO TEXT, then attempt 4 audits it
+                print("  💥 Nuclear — generating with no text for final audit…")
+                reason_lower = reason.lower()
+                if any(w in reason_lower for w in ("clip", "cut", "edge", "top", "bottom", "spell", "text")):
+                    msg = "NO TEXT IN THE IMAGE AT ALL. ZERO WORDS. ZERO LETTERS. PURELY VISUAL"
+                else:
+                    msg = "REMOVE ALL TEXT FROM THE IMAGE. VISUAL ELEMENTS ONLY. NO EXCEPTIONS"
+                all_rejections.append(msg)
+                print(f"     → Sending: {msg}")
+                # Don't return — loop continues to attempt 3 which generates and audits
+
             else:
-                print(f"  ❌ Failed audit after {MAX_AUDIT_RETRIES + 1} attempts.")
-                print(f"     Last reason: {audit['reason']}")
+                # Attempt 4 → auditor ran on nuclear image → if here it failed
+                print(f"  ❌ Failed all audit attempts [nuclear applied].")
+                print(f"     {reason}")
+                return None, {"passed": False, "reason": reason, "went_nuclear": True,
+                              "correction_history": all_rejections, "last_image_bytes": image_bytes}
 
-                # ── User recovery options ─────────────────────────────────────
-                # Show different options depending on current image mode.
-                print("\n  What would you like to do?")
-                if image_mode == "Provided Images" and selected_images:
-                    print("  1. Try a different image from the library")
-                    print("  2. Switch to AI Generated instead")
-                    print("  3. Cancel — keep caption only, no image")
-                    recovery = input("  Choice (1/2/3, default 3): ").strip()
-                else:
-                    # Already AI Generated — can only retry or cancel
-                    print("  1. Try generating again (new attempt)")
-                    print("  2. Cancel — keep caption only, no image")
-                    raw = input("  Choice (1/2, default 2): ").strip()
-                    recovery = raw if raw in ("1",) else "3"
-
-                if recovery == "1" and selected_images and image_mode == "Provided Images":
-                    # Pick a different image and restart the audit loop
-                    new_chosen = _pick_image(selected_images)
-                    print(f"  🔄 Trying with: {new_chosen.name}")
-                    chosen             = new_chosen
-                    previous_rejection = ""
-                    # Reset and run loop again with fresh image
-                    for retry_attempt in range(MAX_AUDIT_RETRIES + 1):
-                        image_bytes = agent._enhance_image(
-                            source_image_path=chosen,
-                            caption=caption,
-                            image_context=image_context,
-                            style_vibe=style_vibe,
-                            previous_rejection=previous_rejection,
-                        ) if use_enhance else agent._generate_image(
-                            caption, image_context, style_vibe,
-                            reference_images=selected_images,
-                            previous_rejection=previous_rejection,
-                        )
-                        if not image_bytes:
-                            break
-                        retry_audit = agent._audit_image(
-                            image_bytes, context,
-                            logo_description=logo_description,
-                            additional_notes=additional_notes,
-                        )
-                        print(f"  🔍 Retry audit {retry_attempt + 1}/{MAX_AUDIT_RETRIES + 1}…")
-                        if retry_audit["passed"]:
-                            print("  ✅ Image passed audit on retry.")
-                            return image_bytes, {"passed": True, "reason": ""}
-                        else:
-                            previous_rejection = retry_audit["reason"]
-                            print(f"  ⚠️  Still failing: {retry_audit['reason']}")
-                    print("  ❌ Retry also failed — saving caption only.")
-                    return None, {"passed": False, "reason": audit["reason"]}
-
-                elif recovery == "2" and image_mode == "Provided Images":
-                    # Switch to AI Generated
-                    print("  🎨 Switching to AI Generated…")
-                    image_bytes = agent._generate_image(
-                        caption, image_context, style_vibe,
-                        previous_rejection=audit["reason"],
-                    )
-                    if image_bytes:
-                        ai_audit = agent._audit_image(
-                            image_bytes, context,
-                            logo_description=logo_description,
-                            additional_notes=additional_notes,
-                        )
-                        if ai_audit["passed"]:
-                            print("  ✅ AI Generated image passed audit.")
-                            return image_bytes, {"passed": True, "reason": ""}
-                        else:
-                            print(f"  ❌ AI Generated also failed: {ai_audit['reason']}")
-                    return None, {"passed": False, "reason": audit["reason"]}
-
-                elif recovery == "1" and image_mode == "AI Generated":
-                    # Retry AI generation with stronger correction
-                    print("  🎨 Retrying AI generation…")
-                    image_bytes = agent._generate_image(
-                        caption, image_context, style_vibe,
-                        previous_rejection=audit["reason"],
-                    )
-                    if image_bytes:
-                        retry_audit = agent._audit_image(
-                            image_bytes, context,
-                            logo_description=logo_description,
-                            additional_notes=additional_notes,
-                        )
-                        if retry_audit["passed"]:
-                            print("  ✅ Retry passed audit.")
-                            return image_bytes, {"passed": True, "reason": ""}
-                        else:
-                            print(f"  ❌ Retry also failed: {retry_audit['reason']}")
-                    return None, {"passed": False, "reason": audit["reason"]}
-
-                else:
-                    # Cancel — caption only
-                    print("  ⏭️  Saving caption only.")
-                    return None, {"passed": False, "reason": audit["reason"]}
-
-    return None, {"passed": True, "reason": ""}
+    # All 4 attempts exhausted — no image is better than a bad image
+    print("  ❌ Failed all audit attempts — saving caption only.")
+    return None, {"passed": False, "reason": "Failed all audit attempts.", "went_nuclear": True,
+                  "correction_history": all_rejections, "last_image_bytes": image_bytes if 'image_bytes' in dir() else None}
 
 
 # ── Platform agent classes ────────────────────────────────────────────────────
@@ -374,17 +338,24 @@ class InstagramAgent(BaseAgent):
             instructions=instructions,
         )
 
-        # ── Step 2: Generate image using final caption as context ─────────────
+        # ── Step 2: Resolve image_mode for Instagram ─────────────────────────
+        image_mode = product_brief.get("image_mode", "")
+        if image_mode not in ("Provided Images", "AI Generated", "No"):
+            image_mode = IMAGE_PLATFORM_DEFAULTS.get("instagram", "Provided Images")
+
+        # ── Step 3: Generate image using final caption as context ─────────────
         # Caption comes first so the image matches what the post is saying
         image_bytes, audit_result = _handle_image(
             agent=self,
             post=post,
-            image_mode=product_brief.get("image_mode", "Provided Images"),
+            image_mode=image_mode,
             selected_images=product_brief.get("selected_images", []),
             style_vibe=product_brief.get("style_vibe", ""),
             context=product_brief.get("context", ""),
             logo_description=product_brief.get("logo_description", ""),
             additional_notes=product_brief.get("additional_info", ""),
+            enhance_as_inspiration=product_brief.get("enhance_as_inspiration", False),
+            brand_context=product_brief.get("brand_context", ""),
         )
         post["image_bytes"]   = image_bytes
         post["audit_result"]  = audit_result
@@ -432,16 +403,27 @@ class TwitterAgent(BaseAgent):
             instructions=instructions,
         )
 
-        # ── Step 2: Image (No by default, but respects explicit request) ──────
+        # ── Step 2: Resolve image_mode for Twitter ────────────────────────
+        image_mode = product_brief.get("image_mode", "")
+        explicit_image = any(
+            w in product_brief.get("additional_info", "").lower()
+            for w in ("image", "photo", "picture", "ai generated", "dall")
+        )
+        if not explicit_image:
+            image_mode = IMAGE_PLATFORM_DEFAULTS.get("twitter", "No")
+
+        # ── Step 3: Image if requested ────────────────────────────────────
         image_bytes, audit_result = _handle_image(
             agent=self,
             post=post,
-            image_mode=product_brief.get("image_mode", "No"),
+            image_mode=image_mode,
             selected_images=product_brief.get("selected_images", []),
             style_vibe=product_brief.get("style_vibe", ""),
             context=product_brief.get("context", ""),
             logo_description=product_brief.get("logo_description", ""),
             additional_notes=product_brief.get("additional_info", ""),
+            enhance_as_inspiration=product_brief.get("enhance_as_inspiration", False),
+            brand_context=product_brief.get("brand_context", ""),
         )
         post["image_bytes"]   = image_bytes
         post["audit_result"]  = audit_result
@@ -490,16 +472,27 @@ class BlogAgent(BaseAgent):
             instructions=instructions,
         )
 
-        # ── Step 2: Image (No by default, but respects explicit request) ──────
+        # ── Step 2: Resolve image_mode for Blog ──────────────────────────
+        image_mode = product_brief.get("image_mode", "")
+        explicit_image = any(
+            w in product_brief.get("additional_info", "").lower()
+            for w in ("image", "photo", "picture", "ai generated", "dall")
+        )
+        if not explicit_image:
+            image_mode = IMAGE_PLATFORM_DEFAULTS.get("blog", "No")
+
+        # ── Step 3: Image if requested ────────────────────────────────────
         image_bytes, audit_result = _handle_image(
             agent=self,
             post=post,
-            image_mode=product_brief.get("image_mode", "No"),
+            image_mode=image_mode,
             selected_images=product_brief.get("selected_images", []),
             style_vibe=product_brief.get("style_vibe", ""),
             context=product_brief.get("context", ""),
             logo_description=product_brief.get("logo_description", ""),
             additional_notes=product_brief.get("additional_info", ""),
+            enhance_as_inspiration=product_brief.get("enhance_as_inspiration", False),
+            brand_context=product_brief.get("brand_context", ""),
         )
         post["image_bytes"]   = image_bytes
         post["audit_result"]  = audit_result

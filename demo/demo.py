@@ -153,6 +153,8 @@ class SocialMediaAgent:
         table.add_column("Field", style="bold", width=22)
         table.add_column("Value")
         for k, v in receipt.items():
+            if k.startswith("_"):
+                continue  # hide internal fields
             table.add_row(k, str(v) if v else "—")
         console.print(table)
 
@@ -216,6 +218,7 @@ class SocialMediaAgent:
                 company_file=company_file,
                 product_url=product_url,
                 product_file=product_file,
+                skip_name_resolution=True,  # already resolved above
             )
 
         receipt["company"] = resolved_company
@@ -261,14 +264,19 @@ class SocialMediaAgent:
         console.print("\n[bold]── Step 7: Style References ──[/bold]")
         console.print(f"  Folder: {self.storage.references_dir(receipt['company'], receipt['product'])}")
 
+        # Snapshot BEFORE the loop so we can detect any changes after
+        refs_before_loop = set(
+            r.name for r in self.storage.list_references(receipt["company"], receipt["product"])
+        )
+
         reference_images = self._reference_selection_loop(
             receipt["company"], receipt["product"]
         )
 
-        # Detect reference changes for style guide update mode
-        refs_after   = self.storage.list_references(receipt["company"], receipt["product"])
+        # Detect reference changes using before/after snapshot
+        refs_after   = set(r.name for r in self.storage.list_references(receipt["company"], receipt["product"]))
         has_guide    = self.storage.style_guide_exists(receipt["company"], receipt["product"])
-        refs_changed = set(r.name for r in refs_after) != set(r.name for r in reference_images)
+        refs_changed = refs_after != refs_before_loop
 
         update_mode = "leave"
         if refs_changed and has_guide:
@@ -302,8 +310,9 @@ class SocialMediaAgent:
         # ══════════════════════════════════════════════════════════════════════
         console.print("\n[bold]── Step 7.6: Image Selection ──[/bold]")
 
-        image_mode      = receipt.get("images", "No")
-        selected_images = []
+        image_mode             = receipt.get("images", "No")
+        selected_images        = []
+        enhance_as_inspiration = False
 
         if image_mode == "No":
             console.print("  Image mode: No — skipping.")
@@ -312,6 +321,19 @@ class SocialMediaAgent:
                 receipt["company"], receipt["product"], image_mode, receipt
             )
             image_mode = receipt.get("images", image_mode)
+
+            # Debug — remove after fixing
+            console.print(f"  [debug] image_mode={image_mode!r} selected_images={len(selected_images)}")
+
+            # Ask enhance vs inspire ONCE here — before parallel execution.
+            # If asked inside threads, multiple agents conflict on input().
+            enhance_as_inspiration = False
+            if image_mode == "Provided Images" and selected_images:
+                console.print("\n  How would you like to use these images?")
+                console.print("  1. Enhance real photo with AI effects")
+                console.print("  2. Use as inspiration for a new AI image")
+                choice = console.input("  Enter 1 or 2 (default 1): ").strip()
+                enhance_as_inspiration = (choice == "2")
 
         # ══════════════════════════════════════════════════════════════════════
         # STEP 8: GENERATE POSTS (PARALLEL WORKFLOW)
@@ -323,33 +345,113 @@ class SocialMediaAgent:
             style=style_guide, extra=receipt.get("additional_info", ""),
             month=receipt.get("when", ""),
         )
-        platforms          = parse_platforms(receipt.get("platforms", "instagram"))
-        n_posts            = int(receipt.get("num_posts", 1))
-        post_platform_list = [platforms[i % len(platforms)] for i in range(n_posts)]
+        platforms = parse_platforms(receipt.get("platforms", "instagram"))
+        n_posts   = int(receipt.get("num_posts", 1))
 
-        agents_per_post = [
-            [PLATFORM_AGENTS[p](openai_key=openai_key)]
-            for p in post_platform_list if p in PLATFORM_AGENTS
-        ]
+        # Build post_platform_list from per-platform counts stored in receipt
+        # e.g. "1 Instagram and 2 Twitter" → [instagram, twitter, twitter]
+        # Falls back to even cycling if no per-platform counts available
+        import re as _re
+        raw_request     = receipt.get("_raw_request", "")
+        platform_counts = _re.findall(r"\b(\d+)\s+(instagram|twitter|blog|x)\b",
+                                      raw_request, _re.I)
+        if platform_counts:
+            post_platform_list = []
+            for count, platform in platform_counts:
+                post_platform_list.extend([platform.lower()] * int(count))
+        else:
+            valid_platforms    = [p for p in platforms if p in PLATFORM_AGENTS]
+            post_platform_list = [valid_platforms[i % len(valid_platforms)]
+                                  for i in range(n_posts)]
+
+        # Group into parallel rounds — all unique platforms per round run together
+        # e.g. [instagram, twitter, twitter] → Round1:[insta,twitter], Round2:[twitter]
+        agents_per_post = []
+        i = 0
+        while i < len(post_platform_list):
+            # Take one of each platform that appears next
+            seen = set()
+            round_platforms = []
+            j = i
+            while j < len(post_platform_list):
+                p = post_platform_list[j]
+                if p not in seen and p in PLATFORM_AGENTS:
+                    seen.add(p)
+                    round_platforms.append(p)
+                    j += 1
+                else:
+                    break
+            if not round_platforms:
+                i += 1
+                continue
+            agents_per_post.append([PLATFORM_AGENTS[p](openai_key=openai_key)
+                                     for p in round_platforms])
+            i += len(round_platforms)
 
         console.print(f"  Platforms: {', '.join(p.capitalize() for p in post_platform_list)}")
-        console.print(f"  Posts: {n_posts} | Images: {image_mode}")
+        console.print(f"  Posts: {len(post_platform_list)} | Images: {image_mode}")
 
         base_brief = {
-            "context":          context,
-            "total_posts":      n_posts,
-            "image_mode":       image_mode,
-            "selected_images":  selected_images,
-            "reference_images": reference_images,
-            "style_vibe":       style_vibe,
-            "logo_description": company_report.get("logo_description", "") or "",
-            "additional_info":  receipt.get("additional_info", ""),
+            "context":                context,
+            "total_posts":            n_posts,
+            "image_mode":             image_mode,
+            "selected_images":        selected_images,
+            "reference_images":       reference_images,
+            "style_vibe":             style_vibe,
+            "logo_description":       company_report.get("logo_description", "") or "",
+            "additional_info":        receipt.get("additional_info", ""),
+            "enhance_as_inspiration": enhance_as_inspiration,
+            "brand_context": " | ".join(filter(None, [
+                f"Notes: {receipt.get('additional_info','')}" if receipt.get("additional_info") else "",
+                f"Vibe: {style_guide.get('vibe','')}" if style_guide.get("vibe") else "",
+                f"Tone: {style_guide.get('tone','')}" if style_guide.get("tone") else "",
+                f"Product: {product_report.get('product_name','')} — {str(product_report.get('product_description',''))[:80]}" if product_report.get("product_name") else "",
+                f"Company: {company_report.get('company_name','')}" if company_report.get("company_name") else "",
+            ])),
         }
 
         start = time.time()
-        with console.status("Generating posts in parallel…"):
-            posts = run_all_posts(agents_per_post, base_brief)
+        posts = run_all_posts(agents_per_post, base_brief)
         elapsed = time.time() - start
+
+        # ── Image recovery — safe here since we're outside threads ───────────
+        from agent_posts import _handle_image
+        for i, post in enumerate(posts, 1):
+            audit = post.get("audit_result", {})
+            if post.get("image_bytes") is None and not audit.get("passed", True):
+                plat = post.get("platform", "?").upper()
+                console.print(f"\n  Post {i} [{plat}] — image failed: {audit.get('reason','')}")
+                console.print("  1. Try a different image")
+                console.print("  2. Use final failed image anyway (marked as Failed Audit)")
+                console.print("  3. Skip — caption only (default)")
+                choice = console.input("  Choice (1/2/3): ").strip()
+
+                if choice == "1":
+                    retry_mode = image_mode if image_mode != "No" else "AI Generated"
+                    img_bytes, img_audit = _handle_image(
+                        agent=agents_per_post[i-1][0],
+                        post=post,
+                        image_mode=retry_mode,
+                        selected_images=selected_images if retry_mode == "Provided Images" else [],
+                        style_vibe=style_vibe,
+                        context=base_brief["context"],
+                        logo_description=base_brief.get("logo_description", ""),
+                        additional_notes=base_brief.get("additional_info", ""),
+                        enhance_as_inspiration=enhance_as_inspiration if retry_mode == "Provided Images" else False,
+                        brand_context=base_brief.get("brand_context", ""),
+                    )
+                    post["image_bytes"]  = img_bytes
+                    post["audit_result"] = img_audit
+
+                elif choice == "2":
+                    # Use the last failed image — store it but mark it clearly
+                    last_image = audit.get("last_image_bytes")
+                    if last_image:
+                        post["image_bytes"]        = last_image
+                        post["audit_result"]       = {**audit, "passed": False, "failed_audit_override": True}
+                        console.print("  ⚠️  Image saved and marked as (Failed Audit).")
+                    else:
+                        console.print("  ⚠️  No image available to save — skipping.")
 
         console.print(f"\n  All agents finished in {elapsed:.2f} seconds")
         console.print("=" * 70)
@@ -366,11 +468,15 @@ class SocialMediaAgent:
             cap_audit = post.get("caption_audit_result", {})
 
             if not has_image:
-                audit_str = "(no image)"
+                nuclear_note = " [nuclear corrections applied]" if audit.get("went_nuclear") else ""
+                audit_str = f"(no image{nuclear_note})"
+            elif audit.get("failed_audit_override"):
+                audit_str = "⚠️  Image saved (Failed Audit)"
             elif audit.get("passed", True):
-                audit_str = "Image passed audit"
+                went_nuclear = audit.get("went_nuclear", False)
+                audit_str = "Image passed audit" + (" [nuclear]" if went_nuclear else "")
             else:
-                audit_str = f"Image audit failed: {audit.get('reason','')}"
+                audit_str = f"Image audit failed: {audit.get('reason','')[:60]}"
 
             cap_str = "Caption passed" if cap_audit.get("passed", True) \
                       else f"Caption failed: {cap_audit.get('reason','')}"
@@ -410,8 +516,10 @@ class SocialMediaAgent:
         )
         for i, post in enumerate(posts, 1):
             if post.get("image_bytes"):
+                audit = post.get("audit_result", {})
+                filename = "post_image (Failed Audit).png" if audit.get("failed_audit_override") else "post_image.png"
                 self.storage.save_image(
-                    output_dir / f"Post {i}", post["image_bytes"]
+                    output_dir / f"Post {i}", post["image_bytes"], filename=filename
                 )
         console.print(f"\n  All posts saved to: {output_dir}")
 
@@ -665,16 +773,16 @@ class SocialMediaAgent:
 
         console.print()
         console.print("  Commands:")
-        console.print("    add <filepath>   — copy a product photo into the library")
-        console.print("    select <number>  — select a photo for this post")
         console.print("    all              — select all photos")
+        console.print("    select <number>  — select a specific photo")
+        console.print("    add <filepath>   — add a photo to the library")
         console.print("    remove <number>  — remove a photo")
         console.print("    Enter            — done")
         console.print()
 
         selected = []
         while True:
-            cmd    = console.input("  > ").strip().strip('"').strip("'")
+            cmd = console.input("  > ").strip().strip('"').strip("'")
             if not cmd:
                 break
             parts  = cmd.split(None, 1)
@@ -721,7 +829,7 @@ class SocialMediaAgent:
                 else:
                     console.print(f"  Invalid number.")
             else:
-                console.print("  add <filepath> | select <number> | all | remove <number> | Enter")
+                console.print("  all | select <number> | add <filepath> | remove <number> | Enter")
 
         if image_mode == "Provided Images" and not selected:
             if not existing:
@@ -769,7 +877,6 @@ class SocialMediaAgent:
                 added = self.storage.add_reference_to_library(company, product, arg)
                 if added:
                     existing = self.storage.list_references(company, product)
-                    console.print(f"  ✅ Reference added: {added.name}")
             elif action == "rmref" and arg.isdigit():
                 idx = int(arg) - 1
                 if 0 <= idx < len(existing):
@@ -802,7 +909,7 @@ if __name__ == "__main__":
     from agent_schedule import ScheduleAgent
     from agent_logger   import Logger
 
-    storage    = Storage(Path(".") / "AI Storage")
+    storage    = Storage(Path(__file__).parent / "AI Storage")
     researcher = ResearchAgent(storage=storage, openai_key=OPENAI_KEY)
 
     agent = SocialMediaAgent(

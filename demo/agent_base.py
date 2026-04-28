@@ -67,16 +67,22 @@ letter is cut off, it FAILS. There are NO exceptions for text at edges.
 Decorative non-text elements at edges are fine. Text is never fine if clipped.
 
 ---
-IMPORTANT: If you FAIL the image, your reason must be specific and actionable.
-  BAD reason:  "text is cut off"
-  GOOD reason: "The words 'Taste of' at the top have their letter tops clipped by
-                the frame edge. Move all text at least 80px from the top edge."
+IMPORTANT: If you FAIL the image, your reason must be a SHORT, PUNCHY, UPPERCASE
+correction command — like a direct order to the image generator.
+MAX 10 WORDS. No long explanations. No describing what went wrong.
+Just tell it what to fix.
+
+Examples:
+  TEXT CUTOFF AT TOP — KEEP ALL TEXT FAR FROM EDGES
+  CHECK SPELLING — DO NOT MISSPELL PRODUCT NAME
+  LOGO WRONG — USE CORRECT BRAND COLORS AND NAME
+  NO TEXT NEAR ANY BORDER — CENTER ALL TEXT
 
 Respond ONLY with a JSON object — no markdown fences:
-{{"passed": true or false, "reason": "specific actionable reason if failed, else empty string"}}
+{{"passed": true or false, "reason": "SHORT UPPERCASE COMMAND if failed, else empty string"}}
 """.strip()
 
-MAX_AUDIT_RETRIES = 2   # max times to retry after audit failure before cancelling
+MAX_AUDIT_RETRIES = 3   # 4 total attempts: normal → emotional → nuclear → final audit
 
 # ── Caption audit prompt ──────────────────────────────────────────────────────
 # Narrow guardrail — only checks for outright lies and hateful/harmful language.
@@ -120,7 +126,7 @@ class BaseAgent:
                  review_key: str = None,
                  main_model: str = "gpt-4o",
                  review_model: str = "gpt-3.5-turbo",
-                 ab_threshold: float = 7.5,
+                 ab_threshold: float = 9.0,
                  ab_max_tries: int = 3):
         self.name          = name
         self.openai_client = OpenAI(api_key=openai_key)
@@ -219,18 +225,35 @@ class BaseAgent:
             candidate.setdefault("image_bytes", None)
 
             # ── Score caption ─────────────────────────────────────────────────
+            # Prompt Engineering note: V1 too lenient (all 9.5), V2 too harsh (all 6.5-7.5).
+            # V3 rebalanced: well-written on-brand posts should score 7.5-8.0,
+            # exceptional posts 9.0+, truly weak posts below 7.0.
             review_prompt = (
-                f"You are a strict social media content reviewer.\n"
-                f"Rate this {platform.upper()} post from 0-10 on:\n"
+                f"You are a social media content reviewer. Be fair but discerning.\n"
+                f"Rate this {platform.upper()} post from 0-10 using these benchmarks:\n\n"
+                f"  9-10: Exceptional. Highly specific, memorable, stops someone mid-scroll.\n"
+                f"        Perfect CTA, strong brand voice, feels completely original.\n"
+                f"  7.5-8.5: Good. Well-written, on-brand, engaging. Minor weaknesses\n"
+                f"        like a slightly generic phrase or a hashtag that feels routine.\n"
+                f"        This is where most solid, professional posts should land.\n"
+                f"  6-7:  Adequate. Does the job but lacks personality or specificity.\n"
+                f"        Generic enough that it could be for a different brand.\n"
+                f"  4-5:  Weak. Cliché, off-brand, or missing a real CTA.\n"
+                f"  0-3:  Poor. Misleading, inappropriate, or completely off-brief.\n\n"
+                f"Only penalize if clearly problematic:\n"
+                f"  - Outright generic filler ('Amazing product! Try it today!')\n"
+                f"  - CTA that is completely absent or confusing\n"
+                f"  - Caption that could apply to any brand with zero customization\n\n"
+                f"Rate criteria:\n"
                 f"- Engagement potential\n"
                 f"- Brand consistency\n"
-                f"- Creativity\n"
+                f"- Creativity and specificity\n"
                 f"- Call-to-action quality\n"
                 f"- Platform best practices\n\n"
                 f"Post caption:\n{candidate.get('caption', '')}\n\n"
                 f"Context summary:\n{context[:800]}\n\n"
                 f"Respond ONLY with JSON — no markdown fences:\n"
-                f'{{"score": <float 0-10>, "reason": "..."}}'
+                f'{{"score": <float 0-10>, "reason": "specific reason for this score"}}'
             )
             review_data = _safe_json(self._review_chat(review_prompt))
             try:
@@ -256,7 +279,8 @@ class BaseAgent:
     def _build_image_prompt(self, caption: str, image_context: str,
                              style_vibe: str = "",
                              logo_description: str = "",
-                             additional_notes: str = "") -> str:
+                             additional_notes: str = "",
+                             brand_context: str = "") -> str:
         """
         Builds the instruction sent to DALL-E or the image edit endpoint.
 
@@ -288,8 +312,13 @@ class BaseAgent:
             for word in ("logo", "cup", "branding", "brand", "color", "colour", "sign")
         ) if additional_notes else False
 
+        # Brand context — additional notes first (most specific), then brand_context
+        if additional_notes:
+            prompt += f"\n\nPost notes: {additional_notes[:150]}\n"
+        if brand_context:
+            prompt += f"\nBrand context: {brand_context[:200]}\n"
         if additional_notes and notes_mention_logo:
-            prompt += f"\n\nBrand notes: {additional_notes}\n"
+            prompt += f"\nLogo notes: {additional_notes[:100]}\n"
         elif logo_description:
             prompt += (
                 f"\n\nLOGO ACCURACY IS CRITICAL: If the brand logo appears in the image, "
@@ -310,7 +339,8 @@ class BaseAgent:
     def _generate_image(self, caption: str, image_context: str,
                          style_vibe: str = "",
                          reference_images: list[Path] | None = None,
-                         previous_rejection: str = "") -> bytes | None:
+                         previous_rejection: str | list = "",
+                         brand_context: str = "") -> bytes | None:
         """
         Generates a new image using DALL-E 3.
 
@@ -337,18 +367,18 @@ class BaseAgent:
         if vision_notes:
             full_context = f"{image_context}\n\nStyle inspiration from reference images:\n{vision_notes}"
 
-        # Inject audit feedback — mirrors orchestrator_loop.py previous_rejections pattern
+        # Stacked correction block — strings already processed in agent_posts.py
         if previous_rejection:
-            full_context = (
-                f"CORRECTION REQUIRED — previous image was rejected:\n"
-                f"{previous_rejection}\n\n"
-                f"Fix the above issue in this new image.\n\n"
-                f"{full_context}"
-            )
+            rejections = previous_rejection if isinstance(previous_rejection, list) \
+                         else [previous_rejection]
+            lines = [f"FIX: {r[:80]}" for r in rejections[-4:] if r]
+            correction = "\n".join(lines) + "\n\n"
+            full_context = correction + full_context
         image_prompt = self._build_image_prompt(
             caption, full_context, style_vibe,
             logo_description=self.__dict__.get("_logo_description", ""),
             additional_notes=self.__dict__.get("_additional_notes", ""),
+            brand_context=brand_context,
         )
 
         print(f"  🎨 Generating image with DALL-E 3…")
@@ -370,47 +400,42 @@ class BaseAgent:
     def _enhance_image(self, source_image_path: Path,
                         caption: str, image_context: str,
                         style_vibe: str = "",
-                        previous_rejection: str = "") -> bytes | None:
+                        previous_rejections: list | None = None,
+                        brand_context: str = "") -> bytes | None:
         """
-        Enhances a real photo using OpenAI's image edit endpoint.
-
-        Keeps the real photo intact and adds AI-generated elements
-        (text effects, overlays, color grading) that match the caption.
-        Caption is always passed so the enhancements tell the same story.
-
-        Args:
-            source_image_path: Path to the real .png or .jpg photo
-            caption:           Final caption — used to guide what effects to add
-            image_context:     Visual description from _ab_loop()
-            style_vibe:        Optional brand vibe from style guide
-
-        Returns:
-            Raw PNG bytes of the enhanced image, or None if it failed.
+        Enhances a real photo. previous_rejections is a list of all prior
+        audit failure reasons — each becomes its own short punchy correction
+        line at the top of the prompt (emotion prompting pattern from class).
+        Stacking keeps each rule visible rather than burying them in one sentence.
         """
-        # Inject audit feedback — mirrors orchestrator_loop.py previous_rejections pattern
-        correction_block = (
-            f"CORRECTION REQUIRED — previous version was rejected:\n"
-            f"{previous_rejection}\n"
-            f"You MUST fix the above issue in this new version.\n\n"
-        ) if previous_rejection else ""
+        # Build stacked correction block — each failure = one short urgent line.
+        # Kept very short so nothing gets truncated by the ~1000 char limit.
+        if previous_rejections:
+            lines = []
+            for r in previous_rejections[-4:]:  # up to 4 stacked fixes
+                if r:
+                    lines.append(f"FIX: {r[:80]}")
+            correction_block = "\n".join(lines) + "\n\n"
+        else:
+            correction_block = ""
+
+        short_caption = caption[:80] + "…" if len(caption) > 80 else caption
+        short_context = image_context[:100] + "…" if len(image_context) > 100 else image_context
+
+        # Build brand block — priority: additional_notes > style > product/company
+        brand_block = f"\n{brand_context[:200]}" if brand_context else ""
 
         edit_instruction = (
             f"{correction_block}"
-            f"Enhance this photo for a social media post.\n"
-            f"The post caption reads: \"{caption}\"\n\n"
-            f"CRITICAL TEXT PLACEMENT RULES — follow these exactly:\n"
-            f"  - Place ALL text at least 120px from EVERY edge (top, bottom, left, right)\n"
-            f"  - The top edge is especially dangerous — never place text within 150px of the top\n"
-            f"  - Every single letter of every word must be 100% inside the frame\n"
-            f"  - If in doubt, move text further toward the center\n"
-            f"  - Do NOT add large headline text near the top of the image\n\n"
-            f"Add elements that match the caption's energy and message — "
-            f"color grading, subtle overlays, or graphic elements. "
-            f"Keep the real photo intact.\n\n"
-            f"Visual direction: {image_context}\n"
+            f"Enhance this photo. Caption: \"{short_caption}\"\n"
+            f"Direction: {short_context}\n"
+            f"{brand_block}\n"
+            f"TEXT RULE: ALL TEXT 150px FROM TOP. 120px FROM ALL EDGES. "
+            f"NO LETTER TOUCHES ANY EDGE. NO EXCEPTIONS. "
+            f"KEEP REAL PHOTO INTACT."
         )
         if style_vibe:
-            edit_instruction += f"\nBrand vibe: {style_vibe}"
+            edit_instruction += f" Vibe: {style_vibe[:40]}"
 
         print(f"  🎨 Enhancing photo: {source_image_path.name}…")
         try:
@@ -585,11 +610,12 @@ class BaseAgent:
             result = __import__("json").loads(raw)
             return {
                 "passed": bool(result.get("passed", True)),
-                "reason": result.get("reason", "")
+                "reason": result.get("reason", ""),
+                "fix":    result.get("fix", "").upper()[:60],
             }
         except Exception as e:
             print(f"  ⚠️  Audit error: {e} — defaulting to passed.")
-            return {"passed": True, "reason": ""}
+            return {"passed": True, "reason": "", "fix": ""}
 
 
 # ── Module-level helpers ──────────────────────────────────────────────────────

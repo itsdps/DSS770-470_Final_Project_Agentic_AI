@@ -64,3 +64,171 @@ else:
     print(f"No company report found for [{company}]. Run Step 4 first.")
 
 No company report found for [Rita's Water Ice]. Run Step 4 first.
+
+
+
+
+Before switching to more emotional prompting (mid switch but before being more short, emotional, and stacking)
+
+⏱️  Starting parallel execution for post 1/3...
+[Instagram Specialist] Starting Instagram post #1...
+      [Instagram Specialist] Post 1 — attempt 1: score 9.5/10
+  ✅  [Instagram Specialist] Post 1 done — final score 9.5
+
+  📸 Using image: Boardwalk.jpg
+  1. Enhance real photo  2. Use as inspiration
+  🎨 Enhancing photo: Boardwalk.jpg…
+  🔍 Auditing image (attempt 1/3)…
+  ⚠️  Audit failed: The word 'officially' in the text is misspelled as 'oficially'. Additionally, the word 'adventure' is misspelled as 'andventure'. Correct these spelling errors.
+  🔄 Regenerating with correction…
+  🎨 Enhancing photo: Boardwalk.jpg…
+  🔍 Auditing image (attempt 2/3)…
+  ⚠️  Audit failed: The words 'Summer is officially here and' at the top have their letter tops clipped by the frame edge. Move all text at least 80px from the top edge.
+  🔄 Regenerating with correction…
+  🎨 Enhancing photo: Boardwalk.jpg…
+  🔍 Auditing image (attempt 3/3)…
+  ⚠️  Audit failed: The words 'what better way to kick off the season' at the top have their letter tops clipped by the frame edge. Move all text at least 80px from the top edge.
+  ❌ Failed audit after 3 attempts.
+     Last reason: The words 'what better way to kick off the season' at the top have their letter tops clipped by the frame edge. Move all text at least 80px from the top edge.
+
+  What would you like to do?
+  1. Try a different image from the library
+  2. Switch to AI Generated instead
+  3. Cancel — keep caption only, no image
+  🎨 Switching to AI Generated…
+  🎨 Generating image with DALL-E 3…
+  ❌ AI Generated also failed: The top of the text in the social media frame is clipped by the frame edge. Move all text at least 80px from the top edge.
+[Instagram Specialist] Finished Instagram post #1.
+  ✨ Post 1 done in 372.9s
+
+  ⏱️  Starting parallel execution for post 2/3...
+[Instagram Specialist] Starting Instagram post #2...
+      [Instagram Specialist] Post 2 — attempt 1: score 9.5/10
+  ✅  [Instagram Specialist] Post 2 done — final score 9.5
+
+  📸 Using image: IMG_9197-scaled-e1741619941763-1024x679.jpg
+  1. Enhance real photo  2. Use as inspiration
+  🎨 Generating image with DALL-E 3…
+  🔍 Auditing image (attempt 1/3)…
+  ⚠️  Audit failed: The words 'Kiwi Melon' at the bottom have their letter bottoms clipped by the frame edge. Move all text at least 80px from the bottom edge.
+  🔄 Regenerating with correction…
+  🎨 Generating image with DALL-E 3…
+  🔍 Auditing image (attempt 2/3)…
+  ✅ Image passed audit.
+[Instagram Specialist] Finished Instagram post #2.
+  ✨ Post 2 done in 80.5s
+
+  ⏱️  Starting parallel execution for post 3/3...
+[Instagram Specialist] Starting Instagram post #3...
+      [Instagram Specialist] Post 3 — attempt 1: score 9.5/10
+  ✅  [Instagram Specialist] Post 3 done — final score 9.5
+
+  📸 Using image: about-promise-fresh.jpg
+  1. Enhance real photo  2. Use as inspiration
+  🎨 Enhancing photo: about-promise-fresh.jpg…
+  🔍 Auditing image (attempt 1/3)…
+  ⚠️  Audit failed: The words 'Do you remember that one summer when' at the top have their letter tops clipped by the frame edge. Move all text at least 80px from the top edge.
+  🔄 Regenerating with correction…
+  🎨 Enhancing photo: about-promise-fresh.jpg…
+  🔍 Auditing image (attempt 2/3)…
+  ⚠️  Audit failed: The text at the bottom of the image has the descender of the letter 'y' in 'you' clipped by the frame edge. Move all text at least 80px from the bottom edge.
+  🔄 Regenerating with correction…
+  🎨 Enhancing photo: about-promise-fresh.jpg…
+  🔍 Auditing image (attempt 3/3)…
+  ⚠️  Audit failed: The words 'Do you remember' at the top have their letter tops clipped by the frame edge. Move all text at least 80px from the top edge.
+  ❌ Failed audit after 3 attempts.
+     Last reason: The words 'Do you remember' at the top have their letter tops clipped by the frame edge. Move all text at least 80px from the top edge.
+
+  What would you like to do?
+  1. Try a different image from the library
+  2. Switch to AI Generated instead
+  3. Cancel — keep caption only, no image
+  ⏭️  Saving caption only.
+[Instagram Specialist] Finished Instagram post #3.
+  ✨ Post 3 done in 192.6s
+
+✨ All agents finished in 645.99 seconds
+======================================================================
+
+📊 A/B SCORE SUMMARY
+----------------------------------------
+  Post 1 [INSTAGRAM]  Score: 9.5/10  (no image)
+  Post 2 [INSTAGRAM]  Score: 9.5/10  ✅ Image passed audit
+  Post 3 [INSTAGRAM]  Score: 9.5/10  (no image)
+----------------------------------------
+
+📊 GENERATED SOCIAL MEDIA CONTENT
+======================================================================
+
+┌─ Post 1 [INSTAGRAM] — Score: 9.5/10  ─────────────────────────────────
+│
+│ 🍉☀️ Summer is officially here and what better way to kick off the season than with a scoop (or two) of our vibrant Kiwi Melon Italian Ice! Remember those carefree days of childhood summers where every day was an adventure? Our Kiwi Melon flavor is more than just a treat; it's a time machine back to those sunny afternoons filled with laughter and sticky fingers. 🌞
+│ 
+│ Imagine sitting on the porch with your family, the sun shining down, and the sweet, tangy taste of kiwi and melon combined in a perfect scoop of Italian Ice. It's a nostalgic wave of happiness in every bite. For those who crave a creamier delight, try it as a Gelati paired with our luscious Frozen Custard. 🍦
+│ 
+│ We want to know—what's your most cherished summer memory? Share it with us in the comments below and let's celebrate the magic of summer together! 💬
+│ 
+│ #RitasItalianIce #SummerVibes #KiwiMelon #NostalgiaInABite #FrozenTreats #FamilyFun #SweetMemories
+└─────────────────────────────────────────────────────────────────────
+
+┌─ Post 2 [INSTAGRAM] — Score: 9.5/10 🖼️ ───────────────────────────────
+│
+│ 🎉 Get ready to dive into a world of bright and fruity delight with our Kiwi Melon Italian Ice! 😋 Remember those carefree summer days when happiness was a spoonful of icy sweetness? Our Kiwi Melon flavor is here to bring those blissful memories back to life. As the sun shines bright this June, treat yourself to a refreshing escape that combines the tangy zest of kiwi with the sweet, juicy goodness of melon. 🌞
+│ 
+│ Here’s a fun challenge for you and your family: snap a picture enjoying your Kiwi Melon treat at your favorite summer spot and tag us! We might just feature your moment on our page. 😉 Let's keep the good vibes rolling and spread the joy one delicious scoop at a time. 
+│ 
+│ Comment below with your favorite summer memory and let’s relive those golden moments together. 🍧
+│ 
+│ #RitasItalianIce #KiwiMelonMagic #SummerVibes #NostalgicTreat #FamilyFun #FrozenDelight #SweetMemories #RefreshingTimes
+└─────────────────────────────────────────────────────────────────────
+
+┌─ Post 3 [INSTAGRAM] — Score: 9.5/10  ─────────────────────────────────
+│
+│ 🌞✨ Do you remember that one summer when the sun seemed to sprinkle extra magic dust on every day? Those days when you’d run barefoot through the grass, chase butterflies, and savor every bite of something sweet and icy before it melted away? 🍧 That's exactly the feeling we're capturing with our Kiwi Melon Italian Ice! 😋 This deliciously bright duo is like a time machine, ready to whisk you back to those carefree days of sunshine and laughter. 
+│ 
+│ Imagine enjoying each spoonful, the tangy kiwi and juicy melon swirling together like a summer dance. Whether you’re a seasoned Rita’s fan or a curious newcomer, this is the treat that brings everyone together. 
+│ 
+│ What's your fondest summer memory? Share with us in the comments below, and let’s create new memories together! 💚🍈 #RitasItalianIce #KiwiMelon #SummerMemories #FrozenFun #DessertDelight #NostalgicTastes #FamilyFun #RefreshingTreats #SummerVibes
+└─────────────────────────────────────────────────────────────────────
+
+======================================================================
+✅ Generation complete! Total time: 645.99s
+======================================================================
+
+
+
+
+
+
+
+
+
+  📸 Using image: boardwalk.jpg
+  🎨 Enhancing photo: boardwalk.jpg…
+  🔍 Auditing image (attempt 1/4)…
+  ⚠️  Audit failed: TEXT CUTOFF AT TOP — KEEP ALL TEXT FAR FROM EDGES
+  🔄 Regenerating with correction…
+  🎨 Enhancing photo: boardwalk.jpg…
+  🔍 Auditing image (attempt 2/4)…
+  ⚠️  Audit failed: TEXT CUTOFF AT TOP — KEEP ALL TEXT FAR FROM EDGES
+  🔄 Regenerating with correction…
+  🎨 Enhancing photo: boardwalk.jpg…
+  🔍 Auditing image (attempt 3/4)…
+  ⚠️  Audit failed: TEXT CUTOFF AT TOP — KEEP ALL TEXT FAR FROM EDGES
+  💥 Nuclear corrections — final attempt incoming…
+  🎨 Enhancing photo: boardwalk.jpg…
+  🔍 Auditing image (attempt 4/4)…
+  ⚠️  Audit failed: TEXT CUTOFF AT TOP — KEEP ALL TEXT FAR FROM EDGES
+  ❌ Failed audit after 4 attempts [nuclear corrections applied].
+     TEXT CUTOFF AT TOP — KEEP ALL TEXT FAR FROM EDGES
+[Instagram Specialist] Finished Instagram post #1.
+  ✨ Post 1 done in 222.2s
+
+Now the full 4-attempt flow:
+
+Attempt 1 → fail → FIX: TEXT CUTOFF AT TOP — KEEP ALL TEXT FAR FROM EDGES
+Attempt 2 → fail → DON'T LET TEXT BE CUT OFF OR I WILL BE FIRED
+Attempt 3 → nuclear → NO TEXT IN THE IMAGE AT ALL. ZERO WORDS. ZERO LETTERS
+Attempt 4 → auditor runs on the nuclear image → if passes ✅, if fails ❌ no image, caption only
+
+"No image is better than a bad image."
