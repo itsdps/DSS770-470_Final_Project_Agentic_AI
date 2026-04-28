@@ -1,10 +1,19 @@
-# Ignore temporary folder used in notebooks
-tmp/
-_my_workspace/
-scratch_pad/
-browser_agents/
-
-
+# Never commit your API keys
 .env
-.venv
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
 venv/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Google Calendar credentials
+credentials.json
+
+# AI Storage (generated files — large, personal)
+AI Storage/
+"credentials.json" 

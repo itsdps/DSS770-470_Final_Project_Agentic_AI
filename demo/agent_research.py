@@ -1,205 +1,691 @@
 """
 agent_research.py
-ReAct-style agent that:
-  • Looks up company / product in local storage
-  • Web-searches missing info via Serper
-  • Calls OpenAI to write Company Report, Product Report, Style Guide
-  • Handles user confirmation at each step
+
+ReAct + Function Calling research agent.
+
+How it works (matches class patterns):
+  - REACT_PROMPT: a plain string like prompt_react_agent.py from class.
+    It tells GPT how to think (Thought / Action / Pause / Observation).
+  - Four tool schemas (like 01_function_calling.ipynb from class):
+      web_search    — searches the web via DuckDuckGo (ddgs, free, no API key)
+      fetch_url     — fetches a specific URL the user provides
+      read_document — reads an uploaded file (PDF, txt, etc.)
+      ask           — pauses and asks the user a clarifying question
+  - GPT decides which tool to call. Your code executes it locally
+    and sends the result back as a "tool" role message (Observation).
+  - The loop runs up to MAX_STEPS times, then GPT writes the final report.
+
+What stays the same from before:
+  - resolve() entry point and company/product branching logic
+  - resolve_style_guide() and all reference management
+  - Storage calls, _safe_json, confirm() helpers
 """
 
-import json, re, textwrap
-import httpx
-from openai import AsyncOpenAI
+import json
+import os
+import re
+import textwrap
+from pathlib import Path
+
+import httpx                        # still used for fetch_url only
+from ddgs import DDGS               # free web search — same lib as class requirements.txt
+from dotenv import load_dotenv      # same pattern as class openai_client.py
+from openai import OpenAI           # sync client — matches class pattern
 from agent_storage import Storage
-from agent_utils import confirm, print_section
+from agent_utils import confirm
+
+load_dotenv()   # reads OPENAI_API_KEY etc. from .env automatically
+
+# MAX_STEPS: how many tool calls the research agent can make before being forced to answer.
+# Lowered from 6 to 3 — in practice 2-3 searches is enough for most companies.
+# Lower = faster research phase. Raise it if you find the agent needs more steps
+# for obscure companies or events with little online presence.
+MAX_STEPS = 3
+
+
+# ── ReAct system prompt ───────────────────────────────────────────────────────
+# Extracted as a plain string so you can edit and iterate on it easily.
+# This is your Prompt Engineering artifact for the report — show before/after here.
+# Matches the structure of prompt_react_agent.py from class.
+
+REACT_PROMPT = """
+You are a market research agent. You run in a loop of Thought, Action, PAUSE, Observation.
+At the end of the loop you output a final JSON report.
+
+Use Thought to describe your reasoning about what information you need.
+Use Action to call one of your available tools — then stop and wait.
+Observation will be the result of that tool call.
+
+IMPORTANT:
+- You MUST perform at least one tool call before producing a final answer.
+- Always base your final report on Observations, not on assumptions.
+- If the first search returns thin results, do a second search with a different query.
+- If a search returns nothing and no document is provided, use the ask tool.
+- If the user provides a URL, use fetch_url rather than web_search.
+- If a document was uploaded, use read_document before searching the web.
+
+Your available actions are:
+
+1. web_search: <query>
+   Search the web for publicly available information about a company or product.
+   Example: web_search: Rita's Water Ice brand overview history products
+
+2. fetch_url: <url>
+   Fetch the content of a specific URL provided by the user.
+   Example: fetch_url: https://www.ritaswaterice.com/about
+
+3. read_document: <filename>
+   Read an uploaded document (PDF, txt, docx) for product or event info.
+   Example: read_document: kiwi_melon_launch_brief.pdf
+
+4. ask: <question>
+   Ask the user a clarifying question when you need more information.
+   Example: ask: Could you provide a website or document for this product?
+
+Example session:
+Thought: I need to find information about Rita's Water Ice to write a company report.
+Action: web_search: Rita's Water Ice company overview history
+PAUSE
+
+Observation: [Rita's Italian Ice] Founded in 1984 by Bob Tumolo in Philadelphia...
+
+Thought: I have enough information to write the company report.
+Answer: { ... json report ... }
+""".strip()
+
+
+# ── Report-writing prompts ────────────────────────────────────────────────────
+# Separated from the ReAct loop so they are easy to find and improve.
+# These are also good candidates for your Prompt Engineering iteration log.
+
+COMPANY_REPORT_PROMPT = """
+STOP the ReAct loop. Do NOT output Thought, Action, or PAUSE.
+Your research is complete. Now write the final report.
+
+You are a market research analyst. Using everything you found in this conversation,
+write a company report for "{company_name}" as a JSON object with these keys:
+  company_name, also_known_as (list), industry, headquarters, founded,
+  main_products (list), competitors (list), target_market,
+  brand_voice, notable_facts (list)
+
+Rules:
+- Respond ONLY with valid JSON. No markdown fences, no explanation, no Thought/Action lines.
+- Use the search results from this conversation as your primary source.
+- You may use well-known general knowledge to fill gaps for widely known companies
+  (e.g. founding year, headquarters city) but do NOT invent specific claims.
+- If a field is genuinely unknown and cannot be reasonably inferred, use null.
+"""
+
+PRODUCT_REPORT_PROMPT = """
+STOP the ReAct loop. Do NOT output Thought, Action, or PAUSE.
+Your research is complete. Now write the final report.
+
+You are a product marketing analyst. Using everything you found in this conversation,
+write a product report for "{product_name}" as a JSON object with these keys:
+  product_name, product_description, price_range, target_market,
+  key_features (list), theme, season_availability,
+  flavors_or_variants (list if applicable)
+
+Company context:
+{company_context}
+
+Rules:
+- Respond ONLY with valid JSON. No markdown fences, no explanation, no Thought/Action lines.
+- Use the search results from this conversation as your primary source.
+- You may use well-known general knowledge to fill gaps for widely known products.
+- If a field is genuinely unknown, use null.
+"""
+
+
+# ── Official name lookup prompt ───────────────────────────────────────────────
+# Used to resolve short/informal names like "Rita's" to official names like
+# "Rita's Water Ice" before any folder creation or searching happens.
+# Keeping the official name as the canonical identifier prevents duplicate
+# folders and improves search quality (official name → better results).
+
+OFFICIAL_NAME_PROMPT = """
+Based on the search results below, what is the full official name of the company
+the user is referring to when they say "{input_name}"?
+
+Search results:
+{search_results}
+
+Rules:
+- Return ONLY the official company name as a plain string, nothing else.
+- If you cannot determine the official name from the results, return "{input_name}" unchanged.
+- Do not include quotes, punctuation, or explanation.
+""".strip()
 
 
 class ResearchAgent:
-    def __init__(self, storage: Storage, openai_key: str, serper_key: str):
-        self.storage   = storage
-        self.client    = AsyncOpenAI(api_key=openai_key)
-        self.serper_key = serper_key
+    def __init__(self, storage: Storage, openai_key: str):
+        self.storage = storage
+        self.client  = OpenAI(api_key=openai_key)   # sync, like class pattern
+
+        # Tool schemas — same structure as 01_function_calling.ipynb from class
+        self.tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "web_search",
+                    "description": "Search the web for publicly available info about a company or product.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Search query"}
+                        },
+                        "required": ["query"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "fetch_url",
+                    "description": "Fetch the full content of a specific URL.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "url": {"type": "string", "description": "The URL to fetch"}
+                        },
+                        "required": ["url"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "read_document",
+                    "description": "Read an uploaded document file (PDF, txt) for product or event info.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "filename": {"type": "string", "description": "Name of the uploaded file"}
+                        },
+                        "required": ["filename"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "ask",
+                    "description": "Ask the user a clarifying question when more info is needed.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "question": {"type": "string", "description": "The question to ask the user"}
+                        },
+                        "required": ["question"]
+                    }
+                }
+            },
+        ]
 
     # ── Main entry point ──────────────────────────────────────────────────────
 
-    async def resolve(self, company_name: str, product_name: str):
-        """Return (company_report, product_report), creating them if needed."""
+    def _resolve_official_name(self, input_name: str,
+                                product_name: str = "") -> str:
+        """
+        Resolves a short or informal company name to its official name.
+
+        Flow:
+          1. Check for exact match in existing company folders — use it if found
+          2. Check for fuzzy matches in existing folders — ask user if it's the same
+          3. If no match, search the web for the official name
+          4. Ask user to confirm the found name before using it
+          5. Return the confirmed official name (used for all folder creation + searching)
+
+        This prevents duplicate folders (Rita's vs Rita's Water Ice) and
+        improves search quality since official names return better results.
+        """
+        # ── Step 1: Exact match ───────────────────────────────────────────────
+        if self.storage.company_exists(input_name):
+            return input_name
+
+        # ── Step 2: Fuzzy match against existing companies ────────────────────
+        # Uses difflib.SequenceMatcher instead of simple substring containment.
+        # Substring check misses partial overlaps like "Rita's Italian Ice" vs
+        # "Rita's Water Ice". SequenceMatcher gives a 0-1 similarity ratio —
+        # 0.6 threshold catches close variants without being too aggressive.
+        # Documented prompt engineering improvement — see Slide 4.
+        from difflib import SequenceMatcher
+        existing = self.storage.list_companies()
+        if existing:
+            input_lower = input_name.lower()
+            fuzzy_matches = [
+                c for c in existing
+                if SequenceMatcher(None, input_lower, c.lower()).ratio() > 0.6
+            ]
+            if fuzzy_matches:
+                for match in fuzzy_matches:
+                    print(f"\n\U0001f50d I found an existing company that looks similar: [{match}]")
+                    answer = confirm(
+                        f'Is "{input_name}" the same company as [{match}]? (Y/n)'
+                    )
+                    if answer:
+                        print(f"  \u2705 Using existing company [{match}]")
+                        return match
+
+        # ── Step 3: Search web for official name ──────────────────────────────
+        # Use product name as context if available to anchor the search
+        hint = f" {product_name}" if product_name else ""
+        print(f"\n\U0001f50d Looking up official name for [{input_name}]\u2026")
+        search_results = self._tool_web_search(
+            f"{input_name}{hint} official company name"
+        )
+
+        if not search_results or search_results.startswith("Web search error"):
+            # Nothing found — use input as-is
+            return input_name
+
+        # Ask GPT to extract the official name from search results
+        prompt = OFFICIAL_NAME_PROMPT.format(
+            input_name=input_name,
+            search_results=search_results[:2000],
+        )
+        resp = self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+        )
+        official_name = resp.choices[0].message.content.strip().strip('"').strip("'")
+
+        # ── Step 4: Confirm with user ─────────────────────────────────────────
+        if official_name.lower() != input_name.lower():
+            print(f"\n\U0001f50d I found the official company name: [{official_name}]")
+            answer = confirm("Is that the company you meant? (Y/n)")
+            if not answer:
+                # User says no — ask them to type the correct name
+                official_name = input("  Please enter the correct company name: ").strip()
+                if not official_name:
+                    official_name = input_name
+        else:
+            print(f"\n\U0001f50d Using company name: [{official_name}]")
+
+        # ── Step 5: Check for duplicate with the resolved name ────────────────
+        if self.storage.company_exists(official_name):
+            print(f"  ✅ Found existing company report for [{official_name}]")
+
+        return official_name
+
+    def resolve(self, company_name: str, product_name: str,
+                provided_url: str = None, uploaded_file: str = None):
+        """
+        Return (company_report, product_report, company_name, product_name).
+
+        Returns the canonical company_name and product_name alongside the reports
+        so the caller (notebook / demo.py) can update the receipt with the
+        official names rather than keeping the user's original input.
+
+        Args:
+            company_name:  Company name from the user's request (may be informal)
+            product_name:  Product or event name from the user's request
+            provided_url:  Optional URL the user gave for the company or product
+            uploaded_file: Optional path to an uploaded document
+        """
+        # ── Resolve official company name before anything else ─────────────────
+        # Converts "Rita's" → "Rita's Water Ice", prevents duplicate folders,
+        # and improves search quality since official names return better results.
+        company_name = self._resolve_official_name(company_name, product_name)
+
         has_company = self.storage.company_exists(company_name)
         has_product = self.storage.product_exists(company_name, product_name)
 
-        # ── Announce state ────────────────────────────────────────────────────
+        # Announce what we found
         if has_company and has_product:
             msg = (f"Just to verify — I found an existing company [{company_name}] "
                    f"and product [{product_name}]. I'll use the existing reports.")
         elif has_company and not has_product:
             msg = (f"Just to verify — I found company [{company_name}] but "
-                   f"[{product_name}] is a new product. I'll create a product report.")
+                   f"[{product_name}] is a new product. I'll research and create a report.")
         else:
             msg = (f"Just to verify — [{company_name}] is a new company and "
-                   f"[{product_name}] is a new product. I'll create both reports.")
+                   f"[{product_name}] is a new product. I'll research both.")
 
         print(f"\n🔍 {msg}")
         ok = confirm("Is this correct? (Y/n)")
         if not ok:
             company_name = input("Enter the correct company name: ").strip() or company_name
             product_name = input("Enter the correct product name: ").strip() or product_name
-            # Re-check after correction
-            has_company = self.storage.company_exists(company_name)
-            has_product = self.storage.product_exists(company_name, product_name)
+            has_company  = self.storage.company_exists(company_name)
+            has_product  = self.storage.product_exists(company_name, product_name)
 
-        # ── Build company report ──────────────────────────────────────────────
+        # ── Company report ────────────────────────────────────────────────────
         if has_company:
             company_report = self.storage.load_company_report(company_name)
             print(f"  ✅ Loaded existing company report for [{company_name}]")
         else:
-            company_report = await self._create_company_report(company_name)
+            company_report = self._create_company_report(
+                company_name, provided_url=provided_url, uploaded_file=uploaded_file
+            )
 
-        # ── Build product report ──────────────────────────────────────────────
+        # ── Product report ────────────────────────────────────────────────────
         if has_product:
             product_report = self.storage.load_product_report(company_name, product_name)
             print(f"  ✅ Loaded existing product report for [{product_name}]")
         else:
-            product_report = await self._create_product_report(
-                company_name, product_name, company_report
+            product_report = self._create_product_report(
+                company_name, product_name, company_report,
+                provided_url=provided_url, uploaded_file=uploaded_file
             )
 
-        return company_report, product_report
+        return company_report, product_report, company_name, product_name
 
     # ── Style Guide ───────────────────────────────────────────────────────────
 
-    async def resolve_style_guide(self, company_report: dict, product_report: dict) -> dict:
+    def resolve_style_guide(self, company_report: dict, product_report: dict) -> dict:
         company = company_report.get("company_name", "Unknown")
         product = product_report.get("product_name", "Unknown")
 
         existing_guides = self.storage.list_style_guides(company)
-        has_guide = self.storage.style_guide_exists(company, product)
+        has_guide       = self.storage.style_guide_exists(company, product)
 
         if has_guide:
-            print(f"\n🎨 Found existing style guide for [{product}].")
-            style_guide = self.storage.load_style_guide(company, product)
-            style_guide = await self._offer_reference_update(style_guide, label="existing")
+            # Style guide exists — load and return immediately.
+            # No questions asked on return visits, keeping the flow fast.
+            # To update references, use the file manager in demo.py instead.
+            print(f"\n🎨 Loaded existing style guide for [{product}].")
+            return self.storage.load_style_guide(company, product)
+
         elif existing_guides:
             print(f"\n🎨 No style guide for [{product}] yet.")
             print(f"  Existing style guides: {', '.join(existing_guides)}")
-            use_base = confirm(f"Would you like to use one as a base? (Y/n)")
             base_guide = None
-            if use_base:
-                print("  Enter the name (or part of it) of the guide to use as base:")
-                choice = input("  > ").strip()
-                match = next((g for g in existing_guides if choice.lower() in g.lower()), None)
+            if confirm("Would you like to use one as a base? (Y/n)"):
+                choice = input("  Enter name (or part of it): ").strip()
+                match  = next((g for g in existing_guides if choice.lower() in g.lower()), None)
                 if match:
                     base_guide = self.storage.load_style_guide(company, match)
                     print(f"  ✅ Using [{match}] as base.")
-                    base_guide = await self._offer_reference_update(base_guide, label="base")
+                    base_guide = self._offer_reference_update(base_guide, label="base")
                 else:
                     print("  No matching guide found, creating fresh.")
-            style_guide = await self._create_style_guide(company_report, product_report, base_guide)
+            style_guide = self._create_style_guide(company_report, product_report, base_guide)
+
         else:
             print(f"\n🎨 No style guides exist yet for [{company}]. Creating fresh.")
-            refs = self._ask_for_references()
-            style_guide = await self._create_style_guide(
+            refs        = self._ask_for_references()
+            style_guide = self._create_style_guide(
                 company_report, product_report, base_guide=None, extra_refs=refs
             )
 
         self.storage.save_style_guide(company, product, style_guide)
         return style_guide
 
-    # ── Private: create reports ───────────────────────────────────────────────
+    # ── ReAct research loop ───────────────────────────────────────────────────
 
-    async def _create_company_report(self, company_name: str) -> dict:
-        print(f"\n🌐 Searching the web for [{company_name}]…")
-        search_results = await self._web_search(f"{company_name} company overview products")
+    def _run_react_loop(self, user_query: str,
+                        provided_url: str = None,
+                        uploaded_file: str = None) -> str:
+        """
+        Core ReAct + function calling loop.
+        Mirrors the pattern from 01_function_calling.ipynb in class:
+          1. Send messages + tools to GPT
+          2. If GPT requests a tool, execute it locally and send result back
+          3. Repeat until GPT produces a plain text Answer (no tool call)
 
-        if not search_results:
-            print("  ⚠️  Web search returned nothing. Please provide a URL for reference.")
-            url = input("  URL (or press Enter to skip): ").strip()
-            search_results = await self._fetch_url(url) if url else ""
+        Returns the final Answer string (raw JSON report text from GPT).
 
-        print(f"  🤖 Generating company report…")
-        prompt = textwrap.dedent(f"""
-            You are a market research analyst. Using the information below, write a thorough
-            company report for "{company_name}" as a JSON object with these keys:
-              company_name, also_known_as (list), industry, headquarters, founded,
-              main_products (list), competitors (list), target_market,
-              brand_voice, notable_facts (list)
+        Args:
+            user_query:    What we want GPT to research and write
+            provided_url:  URL to hint GPT toward fetch_url first
+            uploaded_file: Filename to hint GPT toward read_document first
+        """
+        # Build the opening user message, adding hints if user gave us extra info
+        hints = []
+        if provided_url:
+            hints.append(f"The user has provided this URL for reference: {provided_url}")
+        if uploaded_file:
+            hints.append(f"The user has uploaded a document: {uploaded_file}")
+        hint_block = ("\n\n" + "\n".join(hints)) if hints else ""
 
-            Web search results:
-            {search_results[:4000]}
+        messages = [
+            {"role": "system", "content": REACT_PROMPT},
+            {"role": "user",   "content": user_query + hint_block},
+        ]
 
-            Respond ONLY with valid JSON, no markdown fences.
-        """)
-        report = await self._gpt(prompt)
-        report = _safe_json(report)
+        observations = []   # collected for report writing later
+
+        for step in range(MAX_STEPS):
+            response = self.client.chat.completions.create(
+                # gpt-4o-mini chosen here deliberately over gpt-4o:
+                # The research loop is doing factual retrieval and tool routing —
+                # not creative writing. gpt-4o-mini handles this just as well
+                # at a fraction of the cost and roughly 2x faster per call.
+                # gpt-4o is reserved for report writing (_gpt()) where
+                # structured JSON quality and reasoning depth matter more.
+                model="gpt-4o-mini",
+                messages=messages,
+                tools=self.tools,
+                tool_choice="auto",
+            )
+            msg = response.choices[0].message
+
+            # ── GPT wants to call a tool (Action step) ────────────────────────
+            if msg.tool_calls:
+                messages.append({
+                    "role":       "assistant",
+                    "content":    msg.content or "",
+                    "tool_calls": msg.tool_calls,
+                })
+
+                # Execute each requested tool locally — same pattern as class notebook
+                for call in msg.tool_calls:
+                    fn_name = call.function.name
+                    args    = json.loads(call.function.arguments or "{}")
+
+                    print(f"  💭 Thought logged")
+                    print(f"  🔧 Action: {fn_name}({args})")
+
+                    # ── Dispatch to the right local function ──────────────────
+                    if fn_name == "web_search":
+                        result = self._tool_web_search(args["query"])
+                    elif fn_name == "fetch_url":
+                        result = self._tool_fetch_url(args["url"])
+                    elif fn_name == "read_document":
+                        result = self._tool_read_document(args["filename"])
+                    elif fn_name == "ask":
+                        result = self._tool_ask(args["question"])
+                    else:
+                        result = f"Unknown tool: {fn_name}"
+
+                    observations.append(f"[{fn_name}] {result[:2000]}")
+                    print(f"  👁️  Observation: {result[:120]}...")
+
+                    # Send the result back as the Observation
+                    # Same "tool" role message structure as class notebook
+                    messages.append({
+                        "role":         "tool",
+                        "tool_call_id": call.id,
+                        "content":      result,
+                    })
+
+            # ── GPT produced a final Answer (no tool call) ────────────────────
+            else:
+                print(f"  ✅ Research complete ({step + 1} steps)")
+                return messages, observations
+
+        # Fallback if we hit MAX_STEPS without a clean answer
+        print(f"  ⚠️  Max steps ({MAX_STEPS}) reached — using collected observations.")
+        return messages, observations
+
+    # ── Private: create reports using the ReAct loop ─────────────────────────
+
+    def _create_company_report(self, company_name: str,
+                                provided_url: str = None,
+                                uploaded_file: str = None) -> dict:
+        print(f"\n🔬 Researching company [{company_name}]…")
+
+        user_query = (
+            f"Research the company '{company_name}' and find specific information for: "
+            f"(1) industry/sector, (2) headquarters city and state, (3) founding year, "
+            f"(4) main products or services, (5) key competitors, (6) target market, "
+            f"(7) brand voice and tone. Search for '{company_name}' directly — "
+            f"use the exact company name in your searches."
+        )
+
+        messages, _ = self._run_react_loop(user_query, provided_url, uploaded_file)
+
+        # Write the report as a follow-up in the SAME conversation so GPT
+        # has full access to all search results it just retrieved.
+        # No tools passed here so GPT cannot call any — plain text JSON response only.
+        print(f"  🤖 Writing company report…")
+        report_instruction = COMPANY_REPORT_PROMPT.format(company_name=company_name)
+        messages.append({"role": "user", "content": report_instruction})
+
+        resp = self.client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            temperature=0.2,
+        )
+        raw    = resp.choices[0].message.content.strip()
+        report = _safe_json(raw)
         report["company_name"] = company_name
         self.storage.save_company_report(company_name, report)
         return report
 
-    async def _create_product_report(self, company_name: str, product_name: str,
-                                     company_report: dict) -> dict:
-        print(f"\n🌐 Searching the web for [{company_name} {product_name}]…")
-        search_results = await self._web_search(f"{company_name} {product_name} product details")
+    def _create_product_report(self, company_name: str, product_name: str,
+                                company_report: dict,
+                                provided_url: str = None,
+                                uploaded_file: str = None) -> dict:
+        print(f"\n🔬 Researching product/event [{product_name}]…")
 
-        if not search_results:
-            print("  ⚠️  Nothing found. Please provide a URL or press Enter to skip.")
-            url = input("  URL: ").strip()
-            search_results = await self._fetch_url(url) if url else ""
+        user_query = (
+            f"Research the product or event '{product_name}' by '{company_name}' "
+            f"and gather enough information to write a product report covering: "
+            f"description, price range, target market, key features, theme, "
+            f"seasonal availability, and any variants or flavors."
+        )
 
-        print(f"  🤖 Generating product report…")
-        prompt = textwrap.dedent(f"""
-            You are a product marketing analyst. Using the company context and web results below,
-            write a product report for "{product_name}" by "{company_name}" as a JSON object
-            with these keys:
-              product_name, product_description, price_range, target_market,
-              key_features (list), theme, season_availability, flavors_or_variants (list if applicable)
+        messages, _ = self._run_react_loop(user_query, provided_url, uploaded_file)
 
-            Company context:
-            {json.dumps(company_report, indent=2)[:1500]}
+        # Write the report as a follow-up in the SAME conversation so GPT
+        # has full access to all the search results it just retrieved.
+        # No tools passed here so GPT cannot call any — plain text JSON response only.
+        print(f"  🤖 Writing product report…")
+        report_instruction = PRODUCT_REPORT_PROMPT.format(
+            product_name=product_name,
+            company_context=json.dumps(company_report, indent=2)[:1500],
+        )
+        messages.append({"role": "user", "content": report_instruction})
 
-            Web search results:
-            {search_results[:3000]}
-
-            Respond ONLY with valid JSON, no markdown fences.
-        """)
-        report = await self._gpt(prompt)
-        report = _safe_json(report)
+        resp = self.client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            temperature=0.2,
+        )
+        raw    = resp.choices[0].message.content.strip()
+        report = _safe_json(raw)
         report["product_name"] = product_name
         self.storage.save_product_report(company_name, product_name, report)
         return report
 
-    async def _create_style_guide(self, company_report: dict, product_report: dict,
-                                  base_guide: dict | None, extra_refs: list | None = None) -> dict:
+    def _create_style_guide(self, company_report: dict, product_report: dict,
+                             base_guide: dict | None,
+                             extra_refs: list | None = None) -> dict:
         print(f"  🤖 Generating style guide…")
-        refs_text = json.dumps(extra_refs or [], indent=2)
-        base_text = json.dumps(base_guide or {}, indent=2)
-
         prompt = textwrap.dedent(f"""
             You are a creative brand strategist. Using the company and product info below,
             create a social media style guide as a JSON object with these keys:
-              vibe (2–4 words), tone, color_palette (list of 3–5 hex codes),
+              vibe (2-4 words), tone, color_palette (list of 3-5 hex codes),
               typography_feel, emoji_usage, caption_structure,
               visual_themes (list), do_list (list), dont_list (list),
               references (list of {{url, description}})
 
-            Do NOT include specific company or product facts — only style/vibe.
-            Base guide to build from (if any): {base_text[:1000]}
-            Reference posts provided: {refs_text}
+            Do NOT include specific company or product facts — only style and vibe.
+            Base guide to build from (if any): {json.dumps(base_guide or {}, indent=2)[:1000]}
+            Reference posts provided: {json.dumps(extra_refs or [], indent=2)}
 
             Company: {json.dumps(company_report, indent=2)[:1200]}
             Product: {json.dumps(product_report, indent=2)[:1200]}
 
-            Respond ONLY with valid JSON, no markdown fences.
+            Respond ONLY with valid JSON. No markdown fences.
         """)
-        guide = await self._gpt(prompt)
-        return _safe_json(guide)
+        return _safe_json(self._gpt(prompt))
 
-    # ── Private: reference management ────────────────────────────────────────
+    # ── Tool implementations (called locally when GPT requests them) ──────────
+    # Same pattern as the local get_current_weather() function in class notebook
 
-    async def _offer_reference_update(self, style_guide: dict, label: str) -> dict:
+    def _tool_web_search(self, query: str) -> str:
+        """
+        Search the web via DuckDuckGo (ddgs).
+        Free, no API key needed — same library as class requirements.txt.
+        Returns plain text snippets as the Observation.
+        """
+        try:
+            with DDGS() as ddgs:
+                results  = ddgs.text(query, max_results=5)
+                snippets = [
+                    f"[{r.get('title', '')}] {r.get('body', '')}"
+                    for r in results
+                ]
+            return "\n".join(snippets) or "No results found."
+        except Exception as e:
+            return f"Web search error: {e}"
+
+    def _tool_fetch_url(self, url: str) -> str:
+        """Fetch a specific URL and return its text content as the Observation."""
+        try:
+            resp = httpx.get(url, follow_redirects=True, timeout=20)
+            return resp.text[:5000]
+        except Exception as e:
+            return f"Could not fetch {url}: {e}"
+
+    def _tool_read_document(self, filename: str) -> str:
+        """
+        Read an uploaded document file and return its text as the Observation.
+        Supports .txt and .pdf (requires pypdf for PDF).
+        The file is expected to be in the same folder as this script,
+        or in a standard uploads location.
+        """
+        # Look in the current folder and one level up
+        search_paths = [
+            Path(filename),
+            Path(".") / filename,
+            Path("uploads") / filename,
+        ]
+        found = next((p for p in search_paths if p.exists()), None)
+
+        if not found:
+            return (f"Document '{filename}' not found. "
+                    f"Please make sure the file is in the project folder.")
+
+        suffix = found.suffix.lower()
+        try:
+            if suffix == ".txt":
+                return found.read_text(encoding="utf-8")[:5000]
+            elif suffix == ".pdf":
+                try:
+                    from pypdf import PdfReader
+                    reader = PdfReader(str(found))
+                    text   = "\n".join(page.extract_text() or "" for page in reader.pages)
+                    return text[:5000]
+                except ImportError:
+                    return "PDF reading requires pypdf. Run: pip install pypdf"
+            else:
+                # Fallback: try reading as plain text
+                return found.read_text(encoding="utf-8", errors="ignore")[:5000]
+        except Exception as e:
+            return f"Error reading {filename}: {e}"
+
+    def _tool_ask(self, question: str) -> str:
+        """
+        Pause the loop and ask the user a clarifying question.
+        The user's answer becomes the Observation sent back to GPT.
+        """
+        print(f"\n  ❓ Agent needs more info:")
+        answer = input(f"  {question}\n  Your answer: ").strip()
+        return answer if answer else "No answer provided."
+
+    # ── Reference management (unchanged from original) ────────────────────────
+
+    def _offer_reference_update(self, style_guide: dict, label: str) -> dict:
         refs = style_guide.get("references", [])
         print(f"\n  Current references in {label} style guide:")
         if refs:
             for i, r in enumerate(refs, 1):
-                print(f"    {i}. {r.get('url')} — {r.get('description','')}")
+                print(f"    {i}. {r.get('url')} — {r.get('description', '')}")
         else:
             print("    (none)")
 
@@ -209,7 +695,7 @@ class ResearchAgent:
             if not cmd:
                 break
             if cmd.lower().startswith("add "):
-                url = cmd[4:].strip()
+                url  = cmd[4:].strip()
                 desc = input(f"    Short description for {url}: ").strip()
                 refs.append({"url": url, "description": desc})
                 print(f"    ✅ Added.")
@@ -227,7 +713,7 @@ class ResearchAgent:
         return style_guide
 
     def _ask_for_references(self) -> list:
-        print("  Would you like to add reference post URLs? (Enter URLs one at a time, blank to stop)")
+        print("  Would you like to add reference post URLs? (blank to stop)")
         refs = []
         while True:
             url = input("  URL (or Enter to skip): ").strip()
@@ -237,40 +723,14 @@ class ResearchAgent:
             refs.append({"url": url, "description": desc})
         return refs
 
-    # ── Private: web / LLM helpers ────────────────────────────────────────────
+    # ── Shared GPT call ───────────────────────────────────────────────────────
 
-    async def _web_search(self, query: str) -> str:
-        """Search via Serper.dev and return a plain-text summary of results."""
-        if not self.serper_key or self.serper_key == "...":
-            return ""  # No key → skip gracefully
-        try:
-            async with httpx.AsyncClient(timeout=15) as c:
-                resp = await c.post(
-                    "https://google.serper.dev/search",
-                    headers={"X-API-KEY": self.serper_key, "Content-Type": "application/json"},
-                    json={"q": query, "num": 5},
-                )
-                data = resp.json()
-            snippets = [
-                f"[{r.get('title','')}] {r.get('snippet','')}"
-                for r in data.get("organic", [])
-            ]
-            return "\n".join(snippets)
-        except Exception as e:
-            print(f"  ⚠️  Web search error: {e}")
-            return ""
-
-    async def _fetch_url(self, url: str) -> str:
-        try:
-            async with httpx.AsyncClient(timeout=20) as c:
-                resp = await c.get(url, follow_redirects=True)
-                return resp.text[:5000]
-        except Exception as e:
-            print(f"  ⚠️  Could not fetch {url}: {e}")
-            return ""
-
-    async def _gpt(self, prompt: str, model: str = "gpt-4o") -> str:
-        resp = await self.client.chat.completions.create(
+    def _gpt(self, prompt: str, model: str = "gpt-4o") -> str:
+        """
+        Simple single-turn GPT call for report writing.
+        Matches generate_text() pattern from class's openai_client.py.
+        """
+        resp = self.client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.4,
@@ -278,13 +738,12 @@ class ResearchAgent:
         return resp.choices[0].message.content.strip()
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Module-level helper ───────────────────────────────────────────────────────
 
 def _safe_json(text: str) -> dict:
-    """Parse JSON even if the model wraps it in markdown fences."""
+    """Parse JSON even if GPT wraps it in markdown fences."""
     text = re.sub(r"^```(?:json)?|```$", "", text.strip(), flags=re.MULTILINE).strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        # Fallback: return raw as a dict with single key
         return {"raw": text}

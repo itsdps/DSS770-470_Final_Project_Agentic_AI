@@ -1,0 +1,6 @@
+
+Output of Product Report is Action:
+{
+  "raw": "Action: web_search: Kiwi Melon Rita's Italian Ice product description price range target market key features theme availability variants",
+  "product_name": "Kiwi Melon"
+}
