@@ -106,13 +106,16 @@ You are a market research analyst. Using everything you found in this conversati
 write a company report for "{company_name}" as a JSON object with these keys:
   company_name, also_known_as (list), industry, headquarters, founded,
   main_products (list), competitors (list), target_market,
-  brand_voice, notable_facts (list)
+  brand_voice, notable_facts (list),
+  logo_description (string describing the logo: colors, shape, text style, e.g.
+    "White script 'Rita\'s' lettering on a green rectangular background with red accent cup icon"
+    — use null if logo cannot be determined from search results)
 
 Rules:
 - Respond ONLY with valid JSON. No markdown fences, no explanation, no Thought/Action lines.
 - Use the search results from this conversation as your primary source.
-- You may use well-known general knowledge to fill gaps for widely known companies
-  (e.g. founding year, headquarters city) but do NOT invent specific claims.
+- You may use well-known general knowledge to fill gaps for widely known companies.
+- For logo_description: describe what you actually found. Do NOT invent a logo if unsure — use null.
 - If a field is genuinely unknown and cannot be reasonably inferred, use null.
 """
 
@@ -135,6 +138,28 @@ Rules:
 - You may use well-known general knowledge to fill gaps for widely known products.
 - If a field is genuinely unknown, use null.
 """
+
+
+# ── Style guide touch-up prompt ──────────────────────────────────────────────
+# Used when references changed and user wants a light update rather than
+# full regenerate. Blends new reference insights into the existing style guide.
+# Future improvement: replace the numbered menu that triggers this with a
+# free-form input classified by GPT (same sentiment_analysis pattern from class).
+
+STYLE_TOUCHUP_PROMPT = """
+You are a creative brand strategist updating an existing social media style guide.
+Make LIGHT adjustments only — preserve the core vibe and tone, just blend in
+insights from the new reference screenshots described below.
+
+Existing style guide:
+{existing_guide}
+
+New style insights from updated references:
+{vision_notes}
+
+Return the updated style guide as a JSON object with the same keys.
+Respond ONLY with valid JSON. No markdown fences.
+""".strip()
 
 
 # ── Official name lookup prompt ───────────────────────────────────────────────
@@ -255,7 +280,14 @@ class ResearchAgent:
             input_lower = input_name.lower()
             fuzzy_matches = [
                 c for c in existing
-                if SequenceMatcher(None, input_lower, c.lower()).ratio() > 0.6
+                if (
+                    # Similarity score — catches variants of similar length
+                    SequenceMatcher(None, input_lower, c.lower()).ratio() > 0.6
+                    or
+                    # Substring containment — catches short names like "Rita's"
+                    # being contained in "Rita's Water Ice" or vice versa
+                    input_lower in c.lower() or c.lower() in input_lower
+                )
             ]
             if fuzzy_matches:
                 for match in fuzzy_matches:
@@ -309,8 +341,56 @@ class ResearchAgent:
 
         return official_name
 
+    def _resolve_official_product_name(self, company_name: str,
+                                        input_name: str) -> str:
+        """
+        Resolves a short or informal product name to its official name.
+        Mirrors _resolve_official_name() but checks existing product reports
+        for this company rather than company folders.
+
+        Examples:
+          "Melon" -> fuzzy matches "Kiwi Melon" (score ~0.67) -> asks user
+          "Cherry" -> fuzzy matches "Cherry Italian Ice" -> asks user
+        """
+        from difflib import SequenceMatcher
+
+        # ── Step 1: Exact match ───────────────────────────────────────────────
+        if self.storage.product_exists(company_name, input_name):
+            return input_name
+
+        # ── Step 2: Fuzzy match against existing products for this company ────
+        products_dir = self.storage.products_dir(company_name)
+        if products_dir.exists():
+            existing_products = [
+                f.stem.replace(" Product Report", "")
+                for f in products_dir.glob("*.json")
+            ]
+            input_lower = input_name.lower()
+            fuzzy_matches = [
+                p for p in existing_products
+                if (
+                    SequenceMatcher(None, input_lower, p.lower()).ratio() > 0.6
+                    or
+                    input_lower in p.lower() or p.lower() in input_lower
+                )
+            ]
+            if fuzzy_matches:
+                for match in fuzzy_matches:
+                    print(f"\n\U0001f50d I found an existing product that looks similar: [{match}]")
+                    answer = confirm(
+                        f'Is "{input_name}" the same product as [{match}]? (Y/n)'
+                    )
+                    if answer:
+                        print(f"  ✅ Using existing product [{match}]")
+                        return match
+
+        # ── Step 3: No match — use input as-is (new product) ─────────────────
+        return input_name
+
     def resolve(self, company_name: str, product_name: str,
-                provided_url: str = None, uploaded_file: str = None):
+                provided_url: str = None, uploaded_file: str = None,
+                company_url: str = None, company_file: str = None,
+                product_url: str = None, product_file: str = None):
         """
         Return (company_report, product_report, company_name, product_name).
 
@@ -328,6 +408,10 @@ class ResearchAgent:
         # Converts "Rita's" → "Rita's Water Ice", prevents duplicate folders,
         # and improves search quality since official names return better results.
         company_name = self._resolve_official_name(company_name, product_name)
+
+        # ── Resolve official product name ─────────────────────────────────────
+        # Converts "Melon" → "Kiwi Melon" via fuzzy match against existing products.
+        product_name = self._resolve_official_product_name(company_name, product_name)
 
         has_company = self.storage.company_exists(company_name)
         has_product = self.storage.product_exists(company_name, product_name)
@@ -356,8 +440,11 @@ class ResearchAgent:
             company_report = self.storage.load_company_report(company_name)
             print(f"  ✅ Loaded existing company report for [{company_name}]")
         else:
+            # Use company-specific ref if given, fall back to generic
             company_report = self._create_company_report(
-                company_name, provided_url=provided_url, uploaded_file=uploaded_file
+                company_name,
+                provided_url=company_url or provided_url,
+                uploaded_file=company_file or uploaded_file,
             )
 
         # ── Product report ────────────────────────────────────────────────────
@@ -365,16 +452,28 @@ class ResearchAgent:
             product_report = self.storage.load_product_report(company_name, product_name)
             print(f"  ✅ Loaded existing product report for [{product_name}]")
         else:
+            # Use product-specific ref if given, fall back to generic
             product_report = self._create_product_report(
                 company_name, product_name, company_report,
-                provided_url=provided_url, uploaded_file=uploaded_file
+                provided_url=product_url or provided_url,
+                uploaded_file=product_file or uploaded_file,
             )
 
         return company_report, product_report, company_name, product_name
 
     # ── Style Guide ───────────────────────────────────────────────────────────
 
-    def resolve_style_guide(self, company_report: dict, product_report: dict) -> dict:
+    def resolve_style_guide(self, company_report: dict, product_report: dict,
+                            reference_images: list | None = None,
+                            update_mode: str = "leave") -> dict:
+        """
+        Generates or loads the style guide.
+        update_mode controls what happens when references changed and a guide exists:
+          "leave"      — load and return existing guide unchanged (default)
+          "touchup"    — light blend of new references into existing guide
+          "regenerate" — full rewrite using all current references
+        Called AFTER references are collected so GPT sees them during generation.
+        """
         company = company_report.get("company_name", "Unknown")
         product = product_report.get("product_name", "Unknown")
 
@@ -382,11 +481,40 @@ class ResearchAgent:
         has_guide       = self.storage.style_guide_exists(company, product)
 
         if has_guide:
-            # Style guide exists — load and return immediately.
-            # No questions asked on return visits, keeping the flow fast.
-            # To update references, use the file manager in demo.py instead.
-            print(f"\n🎨 Loaded existing style guide for [{product}].")
-            return self.storage.load_style_guide(company, product)
+            existing = self.storage.load_style_guide(company, product)
+
+            if update_mode == "leave":
+                print(f"\n🎨 Loaded existing style guide for [{product}].")
+                return existing
+
+            elif update_mode == "touchup" and reference_images:
+                print(f"\n🎨 Touching up style guide for [{product}] with new references…")
+                try:
+                    vision_notes = self._describe_references_for_style(reference_images)
+                    prompt = STYLE_TOUCHUP_PROMPT.format(
+                        existing_guide=json.dumps(existing, indent=2)[:2000],
+                        vision_notes=vision_notes,
+                    )
+                    updated = _safe_json(self._gpt(prompt))
+                    self.storage.save_style_guide(company, product, updated)
+                    print(f"  ✅ Style guide touched up.")
+                    return updated
+                except Exception as e:
+                    print(f"  ⚠️  Touch up failed ({e}) — using existing guide.")
+                    return existing
+
+            elif update_mode == "regenerate":
+                print(f"\n🎨 Regenerating style guide for [{product}]…")
+                style_guide = self._create_style_guide(
+                    company_report, product_report,
+                    base_guide=existing,
+                    reference_images=reference_images,
+                )
+                self.storage.save_style_guide(company, product, style_guide)
+                return style_guide
+
+            else:
+                return existing
 
         elif existing_guides:
             print(f"\n🎨 No style guide for [{product}] yet.")
@@ -398,16 +526,42 @@ class ResearchAgent:
                 if match:
                     base_guide = self.storage.load_style_guide(company, match)
                     print(f"  ✅ Using [{match}] as base.")
-                    base_guide = self._offer_reference_update(base_guide, label="base")
+
+                    # Ask if they want to copy the reference screenshots too.
+                    # Default yes — most of the time you want the same brand
+                    # references to carry over to the new product's style.
+                    base_refs = self.storage.list_references(company, match)
+                    if base_refs:
+                        print(f"  Found {len(base_refs)} reference screenshot(s) in [{match}]:")
+                        for r in base_refs:
+                            print(f"    • {r.name}")
+                        copy_refs = confirm(
+                            "  Copy these references to the new style guide? (Y/n)"
+                        )
+                        if copy_refs:
+                            import shutil
+                            dest_dir = self.storage.references_dir(company, product)
+                            dest_dir.mkdir(parents=True, exist_ok=True)
+                            for ref in base_refs:
+                                dest = dest_dir / ref.name
+                                if not dest.exists():
+                                    shutil.copy2(ref, dest)
+                            print(f"  ✅ Copied {len(base_refs)} reference(s) to [{product}].")
+                        else:
+                            print("  Skipping references — starting fresh for this product.")
+                    else:
+                        print(f"  No references found in [{match}] to copy.")
                 else:
                     print("  No matching guide found, creating fresh.")
-            style_guide = self._create_style_guide(company_report, product_report, base_guide)
+            style_guide = self._create_style_guide(company_report, product_report, base_guide,
+                                                    reference_images=reference_images)
 
         else:
             print(f"\n🎨 No style guides exist yet for [{company}]. Creating fresh.")
             refs        = self._ask_for_references()
             style_guide = self._create_style_guide(
-                company_report, product_report, base_guide=None, extra_refs=refs
+                company_report, product_report, base_guide=None, extra_refs=refs,
+                reference_images=reference_images
             )
 
         self.storage.save_style_guide(company, product, style_guide)
@@ -521,8 +675,10 @@ class ResearchAgent:
             f"Research the company '{company_name}' and find specific information for: "
             f"(1) industry/sector, (2) headquarters city and state, (3) founding year, "
             f"(4) main products or services, (5) key competitors, (6) target market, "
-            f"(7) brand voice and tone. Search for '{company_name}' directly — "
-            f"use the exact company name in your searches."
+            f"(7) brand voice and tone, "
+            f"(8) logo description — colors, shape, text style, any iconic elements. "
+            f"Search for '{company_name}' directly and also search '{company_name} logo' "
+            f"to find logo details."
         )
 
         messages, _ = self._run_react_loop(user_query, provided_url, uploaded_file)
@@ -583,8 +739,26 @@ class ResearchAgent:
 
     def _create_style_guide(self, company_report: dict, product_report: dict,
                              base_guide: dict | None,
-                             extra_refs: list | None = None) -> dict:
+                             extra_refs: list | None = None,
+                             reference_images: list | None = None) -> dict:
+        """
+        Generates a style guide. If reference_images are provided, uses GPT Vision
+        to describe their style first, then folds that description into the prompt.
+        This means the style guide is directly informed by real example posts.
+        """
         print(f"  🤖 Generating style guide…")
+
+        # Get Vision description of reference screenshots if provided
+        vision_style = ""
+        if reference_images:
+            print(f"  👁️  Analyzing {len(reference_images)} style reference(s) via Vision…")
+            try:
+                vision_style = self._describe_references_for_style(reference_images)
+            except Exception as e:
+                print(f"  ⚠️  Vision analysis failed: {e}")
+
+        vision_block = f"\nStyle insights from reference screenshots:\n{vision_style}" if vision_style else ""
+
         prompt = textwrap.dedent(f"""
             You are a creative brand strategist. Using the company and product info below,
             create a social media style guide as a JSON object with these keys:
@@ -595,7 +769,7 @@ class ResearchAgent:
 
             Do NOT include specific company or product facts — only style and vibe.
             Base guide to build from (if any): {json.dumps(base_guide or {}, indent=2)[:1000]}
-            Reference posts provided: {json.dumps(extra_refs or [], indent=2)}
+            {vision_block}
 
             Company: {json.dumps(company_report, indent=2)[:1200]}
             Product: {json.dumps(product_report, indent=2)[:1200]}
@@ -603,6 +777,44 @@ class ResearchAgent:
             Respond ONLY with valid JSON. No markdown fences.
         """)
         return _safe_json(self._gpt(prompt))
+
+    def _describe_references_for_style(self, reference_images: list) -> str:
+        """
+        Passes reference screenshots to GPT Vision and gets a style description.
+        Used during style guide creation so the guide reflects real example posts.
+        Mirrors _describe_images_for_reference() in agent_base.py but focused
+        on extracting style/tone/humor patterns rather than visual aesthetics.
+        """
+        content = [
+            {
+                "type": "text",
+                "text": (
+                    "Look at these social media post screenshots and describe their style "
+                    "in 4-5 sentences. Focus on: tone (funny/serious/inspirational), "
+                    "caption structure, use of emojis, hashtag style, call-to-action approach, "
+                    "and overall energy. This will be used to create a brand style guide."
+                )
+            }
+        ]
+        for path in reference_images[:3]:
+            try:
+                with open(path, "rb") as f:
+                    import base64
+                    encoded = base64.b64encode(f.read()).decode("utf-8")
+                mime = "image/png" if str(path).endswith(".png") else "image/jpeg"
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{encoded}"}
+                })
+            except Exception as e:
+                print(f"  ⚠️  Could not load {path}: {e}")
+
+        resp = self.client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": content}],
+            max_tokens=400,
+        )
+        return resp.choices[0].message.content.strip()
 
     # ── Tool implementations (called locally when GPT requests them) ──────────
     # Same pattern as the local get_current_weather() function in class notebook
@@ -681,47 +893,26 @@ class ResearchAgent:
     # ── Reference management (unchanged from original) ────────────────────────
 
     def _offer_reference_update(self, style_guide: dict, label: str) -> dict:
-        refs = style_guide.get("references", [])
-        print(f"\n  Current references in {label} style guide:")
-        if refs:
-            for i, r in enumerate(refs, 1):
-                print(f"    {i}. {r.get('url')} — {r.get('description', '')}")
-        else:
-            print("    (none)")
-
-        print("  You can: add <URL>, remove <number>, or press Enter when done.")
-        while True:
-            cmd = input("  > ").strip()
-            if not cmd:
-                break
-            if cmd.lower().startswith("add "):
-                url  = cmd[4:].strip()
-                desc = input(f"    Short description for {url}: ").strip()
-                refs.append({"url": url, "description": desc})
-                print(f"    ✅ Added.")
-            elif cmd.lower().startswith("remove "):
-                idx = int(cmd.split()[1]) - 1
-                if 0 <= idx < len(refs):
-                    removed = refs.pop(idx)
-                    print(f"    🗑️  Removed: {removed['url']}")
-                else:
-                    print("    ❌ Invalid number.")
-            else:
-                print("    Commands: add <URL> | remove <number> | Enter to finish")
-
-        style_guide["references"] = refs
+        """
+        Show existing style reference screenshots and let user add/remove them.
+        References are stored as screenshots in Images/{Product}/references/
+        rather than URLs — use the image selection step in the notebook or demo.py
+        to manage them. This method just shows what exists and returns unchanged.
+        """
+        # References are now managed via the references/ folder in Step 7.5
+        # Just show what's there and return — no URL prompts
+        print(f"\n  Style references are managed in the Images/{{product}}/references/ folder.")
+        print(f"  Add screenshots there during the image selection step (Step 7.5).")
         return style_guide
 
     def _ask_for_references(self) -> list:
-        print("  Would you like to add reference post URLs? (blank to stop)")
-        refs = []
-        while True:
-            url = input("  URL (or Enter to skip): ").strip()
-            if not url:
-                break
-            desc = input(f"  Description for {url}: ").strip()
-            refs.append({"url": url, "description": desc})
-        return refs
+        """
+        References are now screenshot files in Images/{Product}/references/
+        rather than URLs. Users add them via the image selection step.
+        This method is kept for compatibility but does nothing.
+        """
+        print("  Style references are managed as screenshots in the image selection step.")
+        return []
 
     # ── Shared GPT call ───────────────────────────────────────────────────────
 
