@@ -55,31 +55,45 @@ Creative phrasing and marketing enthusiasm are fine — only fail on clear lies.
 Product context: {context}
 
 ---
-CRITERIA 3 — TEXT LEGIBILITY (MOST IMPORTANT — ZERO TOLERANCE)
+CRITERIA 3 — TEXT LEGIBILITY (HIGH PRIORITY)
 Look at every piece of text in the image, especially near the TOP and BOTTOM edges.
-FAIL immediately if ANY of these are true:
-- ANY letter of ANY word touches or goes beyond the image edge — even 1 pixel
-- The top of any letter is clipped, even slightly (e.g. "Taste of" losing the tops of letters)
-- Any word is partially outside the frame
-- Text at the very top or bottom of the image where ascenders or descenders are cut
-DO NOT pass an image just because the word is still readable — if any part of any
-letter is cut off, it FAILS. There are NO exceptions for text at edges.
-Decorative non-text elements at edges are fine. Text is never fine if clipped.
+FAIL only if text is CLEARLY and VISIBLY cut off — meaning letters are actually missing
+their tops, bottoms, or sides. Ask yourself: "Is part of a letter actually gone?"
+
+FAIL if:
+- A letter is visibly truncated — the top, bottom, or side of the letter is cut away
+- A word is partially outside the frame and letters are missing
+- Ascenders (like the top of 'h', 'd', 'f') or descenders (like the bottom of 'g', 'p')
+  are visibly cut off
+
+DO NOT FAIL if:
+- Text is near the edge but all letters are fully visible and complete
+- There is a colored banner or block near the edge with text inside it that is fully readable
+- Text simply starts close to the top — close is NOT the same as clipped
+
+If you are not 100% certain that letters are actually cut off, PASS the image.
+Only fail on clear, obvious, undeniable text clipping. Do not fail on suspicion.
+
+NOTE ON SPELLING: Do NOT flag hashtags (e.g. #SummerTreats, #KiwiMelonMagic) as
+misspellings — combining words in hashtags is intentional and correct. Do NOT flag
+stylized or creative marketing text (e.g. "Summerzz", "Kiwi-licious") as misspellings.
+Only flag obvious real misspellings of the product or brand name itself
+(e.g. "Frozzen Custerd" instead of "Frozen Custard").
 
 ---
-IMPORTANT: If you FAIL the image, your reason must be a SHORT, PUNCHY, UPPERCASE
-correction command — like a direct order to the image generator.
-MAX 10 WORDS. No long explanations. No describing what went wrong.
-Just tell it what to fix.
+IMPORTANT: Be lenient. The goal is to catch genuinely bad images, not to be
+a perfectionist. A good-enough image that serves its marketing purpose should
+PASS. Only fail if something is clearly, obviously wrong.
 
-Examples:
-  TEXT CUTOFF AT TOP — KEEP ALL TEXT FAR FROM EDGES
-  CHECK SPELLING — DO NOT MISSPELL PRODUCT NAME
-  LOGO WRONG — USE CORRECT BRAND COLORS AND NAME
-  NO TEXT NEAR ANY BORDER — CENTER ALL TEXT
+If you FAIL, return:
+  "reason" — 1-2 plain English sentences describing what is wrong, for a human to read
+  "fix"    — ONE short UPPERCASE command for the image generator, max 8 words
+             e.g. KEEP ALL TEXT FAR FROM EDGES / NO LOGO DISTORTION
+
+If you PASS, return empty strings for both.
 
 Respond ONLY with a JSON object — no markdown fences:
-{{"passed": true or false, "reason": "SHORT UPPERCASE COMMAND if failed, else empty string"}}
+{{"passed": true or false, "reason": "plain English description if failed, else empty", "fix": "UPPERCASE COMMAND if failed, else empty"}}
 """.strip()
 
 MAX_AUDIT_RETRIES = 3   # 4 total attempts: normal → emotional → nuclear → final audit
@@ -241,26 +255,28 @@ class BaseAgent:
             # exceptional posts 9.0+, truly weak posts below 7.0.
             review_prompt = (
                 f"You are a social media content reviewer. Be fair but discerning.\n"
-                f"Rate this {platform.upper()} post from 0-10 using these benchmarks:\n\n"
+                f"Rate this {platform.upper()} post from 0-10.\n\n"
+                f"SCORING GUIDE:\n"
                 f"  9-10: Exceptional. Highly specific, memorable, stops someone mid-scroll.\n"
-                f"        Perfect CTA, strong brand voice, feels completely original.\n"
-                f"  7.5-8.5: Good. Well-written, on-brand, engaging. Minor weaknesses\n"
-                f"        like a slightly generic phrase or a hashtag that feels routine.\n"
-                f"        This is where most solid, professional posts should land.\n"
-                f"  6-7:  Adequate. Does the job but lacks personality or specificity.\n"
-                f"        Generic enough that it could be for a different brand.\n"
-                f"  4-5:  Weak. Cliché, off-brand, or missing a real CTA.\n"
-                f"  0-3:  Poor. Misleading, inappropriate, or completely off-brief.\n\n"
-                f"Only penalize if clearly problematic:\n"
-                f"  - Outright generic filler ('Amazing product! Try it today!')\n"
-                f"  - CTA that is completely absent or confusing\n"
-                f"  - Caption that could apply to any brand with zero customization\n\n"
-                f"Rate criteria:\n"
-                f"- Engagement potential\n"
-                f"- Brand consistency\n"
-                f"- Creativity and specificity\n"
-                f"- Call-to-action quality\n"
-                f"- Platform best practices\n\n"
+                f"        Perfect CTA, strong brand voice, completely original. Rare.\n"
+                f"  8-8.5: Good. Well-written and on-brand but has at least one weakness —\n"
+                f"        a slightly generic phrase, a predictable hashtag, or a CTA that\n"
+                f"        could be sharper. Most professionally written posts land here.\n"
+                f"  7-7.5: Decent. Gets the job done but feels a bit formulaic. Could apply\n"
+                f"        to similar brands with minor changes. Needs one more iteration.\n"
+                f"  5-6:  Weak. Generic, cliché, or missing personality. Forgettable.\n"
+                f"  0-4:  Poor. Off-brand, misleading, or completely off-brief.\n\n"
+                f"DEDUCT 0.5 for each of these issues (be specific in your reasoning):\n"
+                f"  - Uses a generic opening phrase ('Summer is here!', 'Are you ready?')\n"
+                f"  - CTA is weak or vague ('check it out', 'try it today')\n"
+                f"  - Hashtags feel generic or forced for this specific brand/product\n"
+                f"  - Caption could apply to a competitor's product with zero changes\n"
+                f"  - Emojis used excessively or randomly without adding meaning\n\n"
+                f"ADD 0.5 for each of these strengths:\n"
+                f"  - Mentions a specific product detail unique to this brand\n"
+                f"  - CTA is creative and specific (not just 'visit us')\n"
+                f"  - Opening line is genuinely surprising or scroll-stopping\n"
+                f"  - Tone perfectly matches the brand's established voice\n\n"
                 f"Post caption:\n{candidate.get('caption', '')}\n\n"
                 f"Context summary:\n{context[:800]}\n\n"
                 f"Respond ONLY with JSON — no markdown fences:\n"
