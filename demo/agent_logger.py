@@ -10,6 +10,21 @@ from pathlib import Path
 from agent_storage import Storage
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# LOGGER
+# Writes one combined log file per run, saved to the company's Log Files folder:
+#
+#   {date} – {company} – {product} – Receipt.txt
+#
+# The file has two sections:
+#   1. RECEIPT — what was requested, reports used, captions with A/B scores
+#   2. CONTENT AUDIT — guardrail results for every post:
+#        caption audit (lies/harmful language pass/fail)
+#        image audit (pass/fail, reason, correction prompts sent per attempt)
+#        overall result
+#
+# Everything in one place — no need to open two files after a run.
+# ═══════════════════════════════════════════════════════════════════════════════
 class Logger:
     def __init__(self, storage: Storage):
         self.storage = storage
@@ -40,6 +55,8 @@ class Logger:
             "\u2500\u2500 RECEIPT \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
         ]
         for k, v in receipt.items():
+            if k.startswith("_"):
+                continue
             lines.append(f"  {k:<20}: {v}")
 
         lines += [
@@ -70,111 +87,94 @@ class Logger:
 
         lines += [
             "",
-            "\u2500\u2500 OUTPUT \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+            "── OUTPUT ────────────────────────────────────────────────────────────────",
             f"  Saved to: {output_dir}",
-            "=" * 60,
+            "",
         ]
 
-        log_path.write_text("\n".join(lines), encoding="utf-8")
-        print(f"  \U0001f4dd Log written: {log_path}")
+        # ── Inline audit section ──────────────────────────────────────────────
+        lines += self._build_audit_lines(company, product, posts)
 
-        # ── Audit log ─────────────────────────────────────────────────────────
-        audit_path = self._write_audit_log(
-            log_dir, today, company, product, posts, suffix
-        )
+        lines += ["=" * 60]
+
+        log_path.write_text("\n".join(lines), encoding="utf-8")
+        print(f"  📝 Log written: {log_path}")
         return log_path
 
-    def _write_audit_log(self, log_dir: Path, today: str,
-                         company: str, product: str,
-                         posts: list, suffix: int) -> Path:
-        """
-        Writes a dedicated audit log covering caption and image audit results
-        for every post. Useful for the ethics/guardrails section of the report.
-        """
-        base_name  = f"{today} \u2013 {company} \u2013 {product} \u2013 Audit"
-        audit_path = log_dir / f"{base_name}.txt"
-        s = suffix
-        while audit_path.exists():
-            audit_path = log_dir / f"{base_name}{s}.txt"
-            s += 1
-
+    def _build_audit_lines(self, company: str, product: str, posts: list) -> list:
+        """Builds the audit section — inlined into the main log."""
         lines = [
-            "=" * 60,
-            "CONTENT AUDIT LOG",
-            "=" * 60,
-            f"Date:    {datetime.datetime.now().isoformat()}",
-            f"Company: {company}",
-            f"Product: {product}",
+            "── CONTENT AUDIT ─────────────────────────────────────────────────────────",
             "",
-            "This log records the output of two guardrail layers:",
-            "  1. Caption Auditor  \u2014 checks for lies and harmful language",
-            "  2. Image Auditor    \u2014 checks logo, facts, and text legibility",
-            "=" * 60,
+            "  Two guardrail layers run on every post:",
+            "    1. Caption Auditor — checks for lies and harmful language",
+            "    2. Image Auditor   — checks logo, facts, and text legibility",
+            "",
         ]
 
         all_passed = True
 
         for i, post in enumerate(posts, 1):
-            platform = post.get("platform", "?").upper()
-            score    = post.get("score", "N/A")
+            platform  = post.get("platform", "?").upper()
+            score     = post.get("score", "N/A")
             score_str = f"{score:.1f}/10" if isinstance(score, float) else str(score)
 
             lines += [
+                f"  ── Post {i} [{platform}]  A/B Score: {score_str} ──────────────────────────",
                 "",
-                f"\u2500\u2500 POST {i} [{platform}]  A/B Score: {score_str} \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
-                "",
-                "  Caption (first 200 chars):",
-                f"  {post.get('caption','')[:200]}...",
+                "    Caption (first 200 chars):",
+                f"    {post.get('caption','')[:200]}...",
                 "",
             ]
 
-            # Caption audit result
-            cap_audit = post.get("caption_audit_result", {})
+            # Caption audit
+            cap_audit  = post.get("caption_audit_result", {})
             cap_passed = cap_audit.get("passed", True)
             cap_reason = cap_audit.get("reason", "")
             if cap_passed:
-                lines.append("  CAPTION AUDIT:  \u2705 PASSED")
+                lines.append("    CAPTION AUDIT:  ✅ PASSED")
             else:
-                lines.append(f"  CAPTION AUDIT:  \u274c FAILED")
-                lines.append(f"    Reason: {cap_reason}")
+                lines.append("    CAPTION AUDIT:  ❌ FAILED")
+                lines.append(f"      Reason: {cap_reason}")
                 all_passed = False
 
-            # Image audit result
+            # Image audit
             img_audit = post.get("audit_result", {})
             has_image = post.get("image_bytes") is not None
             if not has_image:
                 went_nuclear = img_audit.get("went_nuclear", False)
-                lines.append(f"  IMAGE AUDIT:    — No image generated"
+                lines.append("    IMAGE AUDIT:    — No image generated"
                              + (" [nuclear corrections applied]" if went_nuclear else ""))
                 img_reason = img_audit.get("reason", "")
                 if img_reason:
-                    lines.append(f"    Reason: {img_reason}")
+                    lines.append(f"      Reason: {img_reason}")
             else:
-                img_passed = img_audit.get("passed", True)
-                img_reason = img_audit.get("reason", "")
+                img_passed   = img_audit.get("passed", True)
+                img_reason   = img_audit.get("reason", "")
                 went_nuclear = img_audit.get("went_nuclear", False)
-                if img_passed:
-                    lines.append("  IMAGE AUDIT:    ✅ PASSED"
-                                + (" [nuclear corrections applied]" if went_nuclear else ""))
+                override     = img_audit.get("failed_audit_override", False)
+                if override:
+                    lines.append("    IMAGE AUDIT:    ⚠️  SAVED (Failed Audit — user override)")
+                    all_passed = False
+                elif img_passed:
+                    lines.append("    IMAGE AUDIT:    ✅ PASSED"
+                                 + (" [nuclear corrections applied]" if went_nuclear else ""))
                 else:
-                    lines.append(f"  IMAGE AUDIT:    ❌ FAILED (post saved without image)")
-                    lines.append(f"    Reason: {img_reason}")
+                    lines.append("    IMAGE AUDIT:    ❌ FAILED (post saved without image)")
+                    lines.append(f"      Reason: {img_reason}")
                     all_passed = False
 
-            # Correction prompt history
+            # Correction history
             corrections = img_audit.get("correction_history", [])
             if corrections:
-                lines.append("  CORRECTION PROMPTS SENT:")
+                lines.append("    CORRECTION PROMPTS SENT:")
                 for j, c in enumerate(corrections, 1):
-                    lines.append(f"    Attempt {j}: {c}")
+                    lines.append(f"      Attempt {j}: {c}")
+
+            lines.append("")
 
         lines += [
+            f"  OVERALL AUDIT: {'ALL PASSED ✅' if all_passed else 'ISSUES DETECTED ⚠️'}",
             "",
-            "=" * 60,
-            f"OVERALL AUDIT RESULT: {'ALL PASSED \u2705' if all_passed else 'ISSUES DETECTED \u26a0\ufe0f'}",
-            "=" * 60,
         ]
-
-        audit_path.write_text("\n".join(lines), encoding="utf-8")
-        print(f"  \U0001f4cb Audit log written: {audit_path}")
-        return audit_path
+        return lines

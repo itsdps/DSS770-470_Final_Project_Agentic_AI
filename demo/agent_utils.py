@@ -62,6 +62,19 @@ def print_receipt(receipt: dict):
     print("=" * 45)
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# REQUEST PARSER
+# Turns the user's plain English request into a structured receipt dict.
+# Uses regular expressions (regex) to extract:
+#   - Company and product names
+#   - Platform(s) and how many posts per platform
+#   - Month, scheduling flag, image mode, additional notes
+#
+# This is similar to the intent classification / entity extraction pattern
+# from class (prompts_text_usecases.py sentiment_analysis) — natural language
+# in, structured labels out. Here we do it with regex instead of GPT for speed,
+# since the pattern is predictable enough not to need a model call.
+# ═══════════════════════════════════════════════════════════════════════════════
 # ── Request parser ────────────────────────────────────────────────────────────
 
 def parse_request(text: str) -> dict:
@@ -197,6 +210,13 @@ def _parse_image_mode(text: str, platforms_str: str) -> str:
     return IMAGE_PLATFORM_DEFAULTS.get(first_platform, "No")
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# RECEIPT EDITOR
+# After parsing, shows the user what was understood and lets them correct it.
+# The user types "modify <field> to <value>" to change any field.
+# Has a guardrail on num_posts (locked when multiple platforms specified)
+# and validates the images field so only valid values are accepted.
+# ═══════════════════════════════════════════════════════════════════════════════
 # ── Interactive receipt editor ────────────────────────────────────────────────
 
 def interactive_receipt_editor(receipt: dict) -> dict:
