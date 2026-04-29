@@ -272,6 +272,10 @@ def _handle_image(agent: BaseAgent, post: dict, image_mode: str,
             if audit_attempt == 0:
                 # Attempt 1 → fail → concise fix
                 print("  🔄 Regenerating with correction…")
+                # Use fix field if available, fall back to last sentence of reason
+                if not fix and reason:
+                    sentences = [s.strip().rstrip(".") for s in reason.split(". ") if s.strip()]
+                    fix = sentences[-1].upper()[:60] if sentences else reason.upper()[:60]
                 if fix:
                     all_rejections.append(fix)
                     print(f"     → Sending: {fix}")
