@@ -70,6 +70,22 @@ def parse_platforms(platforms) -> list[str]:
 # Module-level counter so parallel agents cycle through images without repeating.
 # Initialized randomly so each run starts at a different image.
 # Thread-safe — multiple platform agents run simultaneously via ThreadPoolExecutor.
+# ═══════════════════════════════════════════════════════════════════════════════
+# HOW THIS FILE WORKS
+# This file defines the three platform agents (Instagram, Twitter, Blog) and
+# the shared logic that connects caption generation to image generation.
+#
+# The flow for each post:
+#   1. _run_caption_audit_loop() — generates a caption via A/B scoring,
+#      then checks it for lies/harmful content before accepting it
+#   2. _handle_image() — generates or enhances an image using that caption,
+#      then runs the image auditor with up to 4 escalating correction attempts
+#   3. The platform agent (Instagram/Twitter/Blog) calls both in sequence
+#      and returns the finished post dict
+#
+# Parallel execution: all agents in a batch run simultaneously via
+# agent_parallel.py (ThreadPoolExecutor) — same pattern as 07_workflow_multitasking
+# ═══════════════════════════════════════════════════════════════════════════════
 import random as _random
 _image_counter      = _random.randint(0, 999)
 _image_counter_lock = __import__("threading").Lock()
@@ -145,6 +161,16 @@ def _run_caption_audit_loop(agent: BaseAgent, platform: str,
     return post
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# IMAGE AUDIT LOOP (_handle_image)
+# This is the guardrail section — after a caption is approved, this function
+# generates the image and runs it through the auditor up to 4 times:
+#   Attempt 1: Generate + audit with basic correction if fails
+#   Attempt 2: Generate + audit with emotional urgency correction ("OR I WILL BE FIRED")
+#   Attempt 3: Nuclear — strips all text from the prompt, tries one last time
+#   Attempt 4: Final audit. If still fails, no image is used.
+# "No image is better than a bad image" — deliberate design decision.
+# ─────────────────────────────────────────────────────────────────────────────
 def _handle_image(agent: BaseAgent, post: dict, image_mode: str,
                   selected_images: list, style_vibe: str,
                   context: str = "",
@@ -290,6 +316,15 @@ def _handle_image(agent: BaseAgent, post: dict, image_mode: str,
                   "correction_history": all_rejections, "last_image_bytes": image_bytes if 'image_bytes' in dir() else None}
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# PLATFORM AGENT CLASSES
+# Each class is a specialized agent for one social media platform.
+# They all inherit from BaseAgent and only define:
+#   - Their name and image default
+#   - Their caption instructions (length, hashtags, tone, CTA style)
+# The heavy lifting (A/B scoring, image gen, auditing) is all in BaseAgent.
+# Mirrors the Twitter/LinkedIn/Blog agent pattern from 07_workflow_multitasking.
+# ═══════════════════════════════════════════════════════════════════════════════
 # ── Platform agent classes ────────────────────────────────────────────────────
 
 class InstagramAgent(BaseAgent):

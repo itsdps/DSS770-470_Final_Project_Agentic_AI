@@ -15,6 +15,19 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# PARALLEL WORKFLOW
+# This mirrors the ParallelWorkflow class from 07_workflow_multitasking.ipynb
+# and 08_workflow_parallelization.ipynb in class.
+#
+# Key difference from class: class used asyncio + AsyncOpenAI + asyncio.gather().
+# This project uses ThreadPoolExecutor + sync OpenAI — same parallelism effect
+# for I/O-bound API calls, but avoids needing async/await throughout all agents.
+#
+# How it works: all agents in a batch start at the same time in separate threads.
+# Twitter (no image) finishes quickly; Instagram (image + audit) takes longer.
+# Results are collected as each thread finishes (as_completed).
+# ═══════════════════════════════════════════════════════════════════════════════
 class ParallelWorkflow:
     """
     Executes multiple platform agents simultaneously using ThreadPoolExecutor.

@@ -57,6 +57,19 @@ Return ONLY a JSON array, no markdown fences:
 """.strip()
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCHEDULE AGENT
+# Handles the post scheduling step after posts are generated.
+# Accepts natural language date input ("2 on June 5th and 1 two days later")
+# and turns it into specific calendar dates using DATE_PARSE_PROMPT.
+#
+# If the user gives fewer dates than posts, GPT fills the gaps automatically
+# and labels them [auto] so the user knows which ones were chosen for them.
+# After confirmation, pushes events to Google Calendar via the API.
+#
+# DATE_PARSE_PROMPT is the main prompt engineering artifact here —
+# same extraction pattern as parse_request() in agent_utils.py.
+# ═══════════════════════════════════════════════════════════════════════════════
 class ScheduleAgent:
     def __init__(self, openai_key: str, credentials_json: str, calendar_id: str):
         self.client           = OpenAI(api_key=openai_key)

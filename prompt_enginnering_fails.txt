@@ -232,3 +232,110 @@ Attempt 3 → nuclear → NO TEXT IN THE IMAGE AT ALL. ZERO WORDS. ZERO LETTERS
 Attempt 4 → auditor runs on the nuclear image → if passes ✅, if fails ❌ no image, caption only
 
 "No image is better than a bad image."
+
+
+
+
+⏱️  Starting parallel execution for post 1/2...
+[Instagram Specialist] Starting Instagram post #1...
+[Twitter Specialist] Starting tweet #1...
+      [Twitter Specialist] Post 1 — attempt 1: score 8.5/10
+      [Instagram Specialist] Post 1 — attempt 1: score 8.5/10
+      [Twitter Specialist] Post 1 — attempt 2: score 8.5/10
+      [Twitter Specialist] Post 1 — attempt 3: score 8.5/10
+  ✅  [Twitter Specialist] Post 1 done — final score 8.5
+[Twitter Specialist] Finished tweet #1.
+      [Instagram Specialist] Post 1 — attempt 2: score 8.5/10
+      [Instagram Specialist] Post 1 — attempt 3: score 8.5/10
+  ✅  [Instagram Specialist] Post 1 done — final score 8.5
+
+  📸 Using image: IMG_9197-scaled-e1741619941763-1024x679.jpg
+  🎨 Enhancing photo: IMG_9197-scaled-e1741619941763-1024x679.jpg…
+  🔍 Auditing image (attempt 1/4)…
+  ⚠️  Audit failed: TEXT CUTOFF AT TOP — KEEP ALL TEXT FAR FROM EDGES
+  🔄 Regenerating with correction…
+  🎨 Enhancing photo: IMG_9197-scaled-e1741619941763-1024x679.jpg…
+  🔍 Auditing image (attempt 2/4)…
+  ⚠️  Audit failed: TEXT CUTOFF AT TOP — KEEP ALL TEXT FAR FROM EDGES
+  🔄 Regenerating with stronger correction…
+     → Sending: DON'T LET TEXT BE CUT OFF OR I WILL BE FIRED — KEEP ALL TEXT FAR FROM EVERY EDGE
+  🎨 Enhancing photo: IMG_9197-scaled-e1741619941763-1024x679.jpg…
+  🔍 Auditing image (attempt 3/4)…
+  ⚠️  Audit failed: TEXT CUTOFF AT TOP — KEEP ALL TEXT FAR FROM EDGES
+  💥 Nuclear — generating with no text for final audit…
+     → Sending: NO TEXT IN THE IMAGE AT ALL. ZERO WORDS. ZERO LETTERS. PURELY VISUAL
+  🎨 Enhancing photo: IMG_9197-scaled-e1741619941763-1024x679.jpg…
+  🔍 Auditing image (attempt 4/4)…
+  ✅ Image passed audit.
+[Instagram Specialist] Finished Instagram post #1.
+  ✨ Post 1 done in 226.9s
+
+  ⏱️  Starting parallel execution for post 2/2...
+[Instagram Specialist] Starting Instagram post #2...
+      [Instagram Specialist] Post 2 — attempt 1: score 8.5/10
+      [Instagram Specialist] Post 2 — attempt 2: score 8.5/10
+      [Instagram Specialist] Post 2 — attempt 3: score 8.5/10
+  ✅  [Instagram Specialist] Post 2 done — final score 8.5
+
+  📸 Using image: about-promise-fresh.jpg
+  🎨 Enhancing photo: about-promise-fresh.jpg…
+  🔍 Auditing image (attempt 1/4)…
+  ⚠️  Audit failed: TEXT CUTOFF AT TOP — KEEP ALL TEXT FAR FROM EDGES
+  🔄 Regenerating with correction…
+  🎨 Enhancing photo: about-promise-fresh.jpg…
+  🔍 Auditing image (attempt 2/4)…
+  ⚠️  Audit failed: TEXT CUTOFF AT TOP — KEEP ALL TEXT FAR FROM EDGES
+  🔄 Regenerating with stronger correction…
+     → Sending: DON'T LET TEXT BE CUT OFF OR I WILL BE FIRED — KEEP ALL TEXT FAR FROM EVERY EDGE
+  🎨 Enhancing photo: about-promise-fresh.jpg…
+  🔍 Auditing image (attempt 3/4)…
+  ⚠️  Audit failed: TEXT CUTOFF AT TOP — KEEP ALL TEXT FAR FROM EDGES
+  💥 Nuclear — generating with no text for final audit…
+     → Sending: NO TEXT IN THE IMAGE AT ALL. ZERO WORDS. ZERO LETTERS. PURELY VISUAL
+  🎨 Enhancing photo: about-promise-fresh.jpg…
+  🔍 Auditing image (attempt 4/4)…
+  ✅ Image passed audit.
+[Instagram Specialist] Finished Instagram post #2.
+  ✨ Post 2 done in 214.3s
+
+✨ All agents finished in 441.18 seconds
+======================================================================
+
+📊 A/B SCORE SUMMARY
+----------------------------------------
+  Post 1 [TWITTER]  Score: 8.5/10  (no image)
+  Post 2 [INSTAGRAM]  Score: 8.5/10  ✅ Image passed audit
+  Post 3 [INSTAGRAM]  Score: 8.5/10  ✅ Image passed audit
+----------------------------------------
+
+📊 GENERATED SOCIAL MEDIA CONTENT
+======================================================================
+
+┌─ Post 1 [TWITTER] — Score: 8.5/10  ───────────────────────────────────
+│
+│ Summer's calling and it's saying Kiwi Melon! 🍈☀️ Dive into refreshing nostalgia with every bite of our vibrant Italian Ice or creamy Gelati. Perfect for family fun or solo indulgence! Ready to chill? Visit us or order now! #SummerVibes #RitasItalianIce
+└─────────────────────────────────────────────────────────────────────
+
+┌─ Post 2 [INSTAGRAM] — Score: 8.5/10 🖼️ ───────────────────────────────
+│
+│ 🌞 Summer has officially arrived, and what better way to kick it off than with a refreshing treat that dances on your taste buds? Our Kiwi Melon Italian Ice is back, and it's here to bring the sunshine to your day! Imagine a burst of zesty kiwi and juicy melon, melting together in a symphony of flavors that’s as cool as a summer breeze. ☀️ Whether you’re a long-time fan or new to the Rita’s family, this flavor promises to whisk you away on a whirlwind of nostalgia and delight. Remember those carefree summer days? Let’s relive them one scoop at a time! 😋
+│ 
+│ But wait, there's more! For those who crave a little extra creaminess, try our Kiwi Melon Gelati, perfectly paired with our rich, creamy Frozen Custard. It's a combo that'll have you dreaming of sandy beaches and sun-kissed days. 🌊 So, what are you waiting for? Swing by your local Rita’s or order online and make this summer one to remember! 🍧
+│ 
+│ Tag a friend you’d share this refreshing treat with and drop your favorite summer emoji in the comments! 🌺
+│ 
+│ #SummerVibes #ItalianIce #KiwiMelonMagic #TasteTheSun #RitasFamilyFun
+└─────────────────────────────────────────────────────────────────────
+
+┌─ Post 3 [INSTAGRAM] — Score: 8.5/10 🖼️ ───────────────────────────────
+│
+│ Ever wish you could bottle up the essence of summer into one perfect treat? 🌞 Say hello to our Kiwi Melon Italian Ice, a flavor so vibrant and refreshing that it instantly transports you back to those carefree, sun-filled afternoons! 🍈✨ Picture this: a delightful blend of juicy kiwi and refreshing melon, creating a symphony of flavors that dance on your taste buds. 
+│ 
+│ Whether you enjoy it as a traditional Italian Ice or decide to go all out with a Kiwi Melon Gelati topped with creamy Frozen Custard, it's the perfect excuse to gather your family, reminisce about past summer adventures, and create new memories. And guess what? We've made it easier than ever to bring this nostalgia to your door, with convenient delivery options. 🚚💨 
+│ 
+│ So, what's your favorite summer memory? Share it with us below! And don't forget to tag your friends who need a taste of summer in their lives. Let's make this June unforgettable! #RitasItalianIce #KiwiMelonMagic #SummerVibes #NostalgicFlavors #FrozenTreats
+└─────────────────────────────────────────────────────────────────────
+
+======================================================================
+✅ Generation complete! Total time: 441.18s
+======================================================================

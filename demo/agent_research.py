@@ -43,6 +43,14 @@ load_dotenv()   # reads OPENAI_API_KEY etc. from .env automatically
 MAX_STEPS = 3
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# EDITABLE PROMPTS
+# These are the main prompt engineering artifacts for this file.
+# REACT_PROMPT controls how the agent decides what to search for and when to stop.
+# COMPANY_REPORT_PROMPT and PRODUCT_REPORT_PROMPT control what gets written
+# into the final JSON report. Changing these prompts directly affects output quality.
+# Good before/after story: see notes in memory about null fields bug fix.
+# ═══════════════════════════════════════════════════════════════════════════════
 # ── ReAct system prompt ───────────────────────────────────────────────────────
 # Extracted as a plain string so you can edit and iterate on it easily.
 # This is your Prompt Engineering artifact for the report — show before/after here.
@@ -186,6 +194,20 @@ Rules:
 """.strip()
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# RESEARCH AGENT CLASS
+# This is the ReAct + function calling agent that researches companies/products.
+# It works like the 02_react_agent.ipynb from class, but upgraded:
+#   - Class used regex (ACTION_RE) to parse tool calls from raw text
+#   - This project uses structured tool_calls via OpenAI function calling
+#     which is more reliable and doesn't break on formatting variations
+#
+# The main entry point is resolve() which:
+#   1. Fuzzy-matches the company/product name against existing folders
+#   2. Runs the ReAct loop to research if reports don't exist yet
+#   3. Writes and saves the company and product reports as JSON
+#   4. Also handles style guide generation (resolve_style_guide)
+# ═══════════════════════════════════════════════════════════════════════════════
 class ResearchAgent:
     def __init__(self, storage: Storage, openai_key: str):
         self.storage = storage
@@ -570,6 +592,13 @@ class ResearchAgent:
 
     # ── ReAct research loop ───────────────────────────────────────────────────
 
+    # ─────────────────────────────────────────────────────────────────────────────
+    # THE REACT LOOP
+    # This is the core of the research agent — it runs a Thought→Action→Observation
+    # loop. At each step, GPT either calls a tool (web search, fetch URL, read doc)
+    # or decides it has enough information and writes the final report.
+    # MAX_STEPS limits how many tool calls it makes (time vs quality tradeoff).
+    # ─────────────────────────────────────────────────────────────────────────────
     def _run_react_loop(self, user_query: str,
                         provided_url: str = None,
                         uploaded_file: str = None) -> str:

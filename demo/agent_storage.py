@@ -34,6 +34,19 @@ from pathlib import Path
 ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# STORAGE CLASS
+# Handles everything to do with reading and writing files on disk.
+# No AI calls happen here — this is purely file management.
+#
+# Key responsibilities:
+#   - Building folder paths for companies, products, style guides, images, logs
+#   - Checking if a company/product already has a saved report
+#   - Validating images before accepting them (.png/.jpg only)
+#   - Saving captions, images, receipts, and log files after each run
+#
+# The folder structure it maintains is shown in the docstring at the top.
+# ═══════════════════════════════════════════════════════════════════════════════
 class Storage:
     def __init__(self, root: Path):
         self.root = Path(root)

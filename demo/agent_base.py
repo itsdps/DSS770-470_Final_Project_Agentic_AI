@@ -116,6 +116,17 @@ Respond ONLY with a JSON object — no markdown fences:
 """.strip()
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# BASE AGENT CLASS
+# This is the foundation that all three platform agents (Instagram, Twitter, Blog)
+# build on top of. It handles everything that is shared:
+#   - Talking to OpenAI (text generation, image generation, vision checks)
+#   - The A/B scoring loop (draft → score → keep best → repeat)
+#   - Caption safety check (lies and harmful language)
+#   - Image generation, enhancement, and the audit retry loop
+# Think of it like a template — each platform agent inherits all of this
+# and just adds its own caption style on top.
+# ═══════════════════════════════════════════════════════════════════════════════
 class BaseAgent:
     """
     Provides a shared OpenAI client and agent name to all platform agents.
@@ -274,6 +285,14 @@ class BaseAgent:
         print(f"  ✅  [{self.name}] Post {post_num} done — final score {best_score:.1f}")
         return best_post
 
+    # ─────────────────────────────────────────────────────────────────────────────
+    # IMAGE GENERATION METHODS
+    # These three methods handle everything image-related. The flow is:
+#   1. _build_image_prompt() — turns the caption + context into a DALL-E instruction
+#   2. _generate_image()    — sends that instruction to DALL-E 3 and gets PNG bytes
+#   3. _enhance_image()     — instead of generating from scratch, edits a real photo
+# After generation, the audit loop in agent_posts.py checks the result.
+    # ─────────────────────────────────────────────────────────────────────────────
     # ── Image generation methods ──────────────────────────────────────────────
 
     def _build_image_prompt(self, caption: str, image_context: str,
