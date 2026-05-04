@@ -151,6 +151,8 @@ class BaseAgent:
                  review_key: str = None,
                  main_model: str = "gpt-4o",
                  review_model: str = "gpt-3.5-turbo",
+                 audit_model: str = "gpt-4.1",    # Vision auditor — gpt-4.1 outperforms gpt-4o on vision
+                                                   # at 83% lower cost. Upgrade from gpt-4o (Apr 2026).
                  ab_threshold: float = 9.0,
                  ab_max_tries: int = 3):
         self.name          = name
@@ -158,6 +160,7 @@ class BaseAgent:
         self.review_client = OpenAI(api_key=review_key or openai_key)
         self.main_model    = main_model
         self.review_model  = review_model
+        self.audit_model   = audit_model   # separate model for vision audit tasks
         self.threshold     = ab_threshold
         self.max_tries     = ab_max_tries
 
@@ -305,7 +308,7 @@ class BaseAgent:
     # IMAGE GENERATION METHODS
     # These three methods handle everything image-related. The flow is:
 #   1. _build_image_prompt() — turns the caption + context into a DALL-E instruction
-#   2. _generate_image()    — sends that instruction to DALL-E 3 and gets PNG bytes
+#   2. _generate_image()    — sends that instruction to gpt-image-2 and gets PNG bytes
 #   3. _enhance_image()     — instead of generating from scratch, edits a real photo
 # After generation, the audit loop in agent_posts.py checks the result.
     # ─────────────────────────────────────────────────────────────────────────────
@@ -377,7 +380,7 @@ class BaseAgent:
                          previous_rejection: str | list = "",
                          brand_context: str = "") -> bytes | None:
         """
-        Generates a new image using DALL-E 3.
+        Generates a new image using gpt-image-2.
 
         If reference_images are provided, first asks GPT Vision to describe
         their style/mood, then incorporates that into the DALL-E prompt.
@@ -416,10 +419,11 @@ class BaseAgent:
             brand_context=brand_context,
         )
 
-        print(f"  🎨 Generating image with DALL-E 3…")
+        print(f"  🎨 Generating image with gpt-image-2…")
         try:
             response = self.openai_client.images.generate(
-                model="dall-e-3",
+                model="gpt-image-2",   # Upgraded from dall-e-3 (Apr 2026)
+                                       # gpt-image-2: 99% text accuracy, retiring dall-e-3 May 12 2026
                 prompt=image_prompt,
                 size="1024x1024",
                 quality="standard",
@@ -429,7 +433,7 @@ class BaseAgent:
             image_b64 = response.data[0].b64_json
             return base64.b64decode(image_b64)
         except Exception as e:
-            print(f"  ⚠️  DALL-E generation failed: {e}")
+            print(f"  ⚠️  Image generation failed: {e}")
             return None
 
     def _enhance_image(self, source_image_path: Path,
@@ -478,7 +482,7 @@ class BaseAgent:
             # We open the file as bytes — OpenAI handles the rest
             with open(source_image_path, "rb") as img_file:
                 response = self.openai_client.images.edit(
-                    model="gpt-image-1",   # required — OpenAI image edit model
+                    model="gpt-image-2",   # Upgraded from gpt-image-1 (Apr 2026) — better text rendering
                     image=img_file,
                     prompt=edit_instruction,
                     size="1024x1024",
@@ -495,7 +499,7 @@ class BaseAgent:
             return None
         except Exception as e:
             print(f"  ⚠️  Image enhancement failed: {e}")
-            print(f"       Falling back to DALL-E generation…")
+            print(f"       Falling back to gpt-image-2 generation…")
             # Graceful fallback — if enhancement fails, generate fresh
             return self._generate_image(
                 caption, image_context, style_vibe,

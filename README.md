@@ -22,7 +22,7 @@ The `Help Documents` folder contains information that we worked with the AI to g
 4. **Evaluation & Ethics:**
    - A brief summary of how you tested the agent and a "Safety Note" on potential biases or risks associated with your specific use case.
 
-
+---
 ## **Objective & Design Brief**
 
 **Objective**: To develop an interactive agent that will create and schedule social media post(s) for a specific organization’s product or event while also keeping a consistent style and focus over an extended period of time. A user should also be able to come back in the future and request the Agent create additional posts for that organization’s product or event. Those future posts should have a consistent focus and similar style to have an effective marketing campaign or presence.
@@ -37,7 +37,7 @@ User Input -> Create Receipt -> Research Company/Product -> Create Company/Produ
 Our project uses a few different Agentic Patterns to achieve its goals. The first, and most obvious, is Sequential Workflow, which is what the overall workflow of this process is. There is a clear step-by-step process where the output of one task is the input in the next (*see the General Workflow above*). Another pattern is Human-in-the-Loop, which is present throughout, such as when it asks the user to confirm the “receipt” or when it uses fuzzy search and ask is “Rita’s” the same as “Rita’s Italian Ice"? The next pattern is ReAct (Reason + Act) and is used explicitly by the Research Agent as it reasons whether it should search the web, fetch a specific URL, read a document, or ask a clarifying question. It then acts and continues the loop. Then, there is a Parallelization Agentic Pattern, which occurs when posts for two different social media are being created and both create captions have them scored at the same time. `InstagramAgent` and `TwitterAgent` will work in parallel or at the same time creating captions for their posts. Finally, there is an Evaluator Pattern (some call it Evaluator-Optimizer Pattern), which is similar to the Orchestrator Pattern from our class, and it is at the end where an auditor evaluates an image, sends correction prompts, evaluates it again, sends another correction prompt, and repeats until the post passes the auditor, or evaluator, or it reaches max iterations and the auditor fails the post.
 
 **Models:**
-The main model used in this AI Agent Prototype was gpt-4o, a very capable model that we knew could handle the tasks we were planning to do. We also felt it properly balanced speed, quality, and token use, the three big considerations when choosing a model. Two other ChatGPT models were also used because of the specific tasks they could preform. DALL-E 3 was used to create the images and gpt-4o Vision to analyze the screenshots to use and audit the generated images by DALL-E 3. The Scorer uses a different model so it judge the main model’s outputs, and it uses the gpt-3.5-turbo because its faster and its tasks are much simpler.
+The main model used in this AI Agent Prototype was gpt-4o, a very capable model that we knew could handle the tasks we were planning to do. We also felt it properly balanced speed, quality, and token use, the three big considerations when choosing a model. Three other OpenAI models were also used because of the specific tasks they were tasked with preforming. Initially, we used DALL-E 3 to create the images but decided to switch to the newer gpt-image-2. Despite being slightly more expensive per photo generated, gpt-image-2 would actually likely save us money by needing to generate less images to be audited and they would be higher quality, which we found to be extremely important. Then, for the analyzing the screenshots and auditing the images, we decided to upgrade from gpt-4o to gpt-4.1, because, for "vision" tasks, it is reportly better at performing them, cheaper per token, and faster at conducting them than gpt-4o. Finally, the A/B Scorer uses gpt-3.5-turbo because its faster and its tasks are much simpler. There are consideration to upgrade this model to a more advanced model, but for this prototype, we felt that the minor drawbacks of using this older model could be made up through prompt engineering and the costs and time savings were worth it.
 
 **Not Simple ChatGPT Prompt:**
 Hopefully that gave some insight on why this useful and much more than a simple ChatGPT prompt. However, we also just wanted to outline a few key points of how this goes beyond a basic ChatGPT prompt:
@@ -45,20 +45,114 @@ Hopefully that gave some insight on why this useful and much more than a simple 
 2. A/B Testing - Quality Checks & Guardrails
 3. Research Structure -> Web Search + URL Links + Files (can do very new or unreleased products/events)
 4. Schedule to Google Calendar
-
+---
 ## **The Prompt Iteration Log**
 
-Our Prompt Engineering Journey had many twists and turns and we wanted to highlight the three primary area where we encountered some limitation/failures with our initial prompts but used different techniques to optimize our prompts. The four key areas where this was most notable (*and that we recorded our progress*) was implimenting the Image Auditor, Researching the Company/Product Report, A/B Scorer, and Fuzzy Searching. We will go into more detail with the first two will the last two we will more just discuss about.
+Our Prompt Engineering Journey had many twists and turns and we wanted to highlight the three primary area where we encountered some limitation/failures with our initial prompts but used different prompt engineering techniques to optimize our prompts. The three key areas where this was most notable were implimenting the Researching the Company/Product Report, Image Auditor, Researching the Company/Product Report, A/B Scorer, and Fuzzy Searching. We will go into more detail with the first two will the last two we will more just discuss about.
 
 **Prompt Engineer #1 - Image Auditor:**
+For this AI Agent Prototype, it generates captions as well as images to be used for social media using gpt-image-2. While the A/B Scorer and Caption Auditor can evaluate text (e.g., the captions) for quality and ethical guidelines, images are much harder to do. However, we still found it very important to try to ensure a certain level of quality because, since the goal is for this image to be shared with the public, “no images” is probably better than a “bad image”. Therefore, we implement an Evaluator-Optimizer Agentic Pattern using gpt-4.1 and is where this “Image Auditor” would evaluate each image for whether it passed certain criteria, such as “no text clipping”, “no misspellings”, and “no incorrect logos”. 
 
+**(1).** The first stage of this implementation was without the auditor, which as mentioned in the model section, was initially using DALL-E 3 for image generation and gpt-4o for auditing the images. This initial iteration had no quality control and while the initial generated images themselves seemed decent, they had major issues that made them unusable, such as incorrect logos, misspelled words, or cut off text, the latter of which was the most common. 
+**(2).** Therefore, for the second iteration, we implemented the image auditor, but it did not detect any of the issues with the images. Our initial prompt was basically “Is this image good for social media posting?” and because of this vague prompt, the auditor passed basically every image, regardless of if it had text that was significantly cutoff, misspelling, or wrong logos.
+**(3).** TThe third iteration of our prompt sought to address this by implementing stricter criteria but ended up overcorrecting and failing to pass almost every image. Our prompt added examples of what to fail the images for and used terms like “ZERO TOLERANCE” and “NO exceptions”. This resulted in the auditor finally flagging the incorrect images, but unfortunately it was flagging basically every single image, and none were being passed.
+**(4).** Therefore, for the fourth iteration of our prompt, we added a correction prompt from the auditor to try to have the image generator address these issues. However, while the image generator sometimes corrected for these issues, the vast majority of the time it just ignored them and even after multiple audits nothing was passed. We identified in this case that the long correction prompt was being cut off, with the first sentence, identifying the issue, being given, but the directions to change, the second sentence, was often cut off or the response was just too long. Additionally, after the max audit attempts, if it still failed, we added it so the user would get the option to use the image but just marked as “Failed Audit” so they wouldn’t accidently use it but could still use it as reference.
+**(5)** Therefore, for the fifth iteration of our prompt, we changed our approach to the correction prompts. The prompts were changed to be more direct and concise while also focusing purely on what to change. Additionally, we implemented an escalating correction prompt approach. After the first failure, a direct, concise, and actionable correction prompt was given, “TEXT CUTOFF – KEEP ALL TEXT FAR FROM EVERY EDGE”. After the second failure, a more urgent and emotional correction prompt was given, “DON’T LET TEXT BE CUT OFF OR I WILL BE FIRED”. Finally, after the third failure, the “nuclear” option would be employed to hopefully get a decent image still, and included correction prompts like “NO TEXT IN THE IMAGE AT ALL. ZERO WORDS. ZERO LETTERS.” In the end, while this did see some images now pass the audit, most still had to go to the “nuclear” option, which was still not ideal.
+**(6).** For the sixth iteration of our prompt, we decided to loosen the restriction on the auditor because we found it was oversensitive and failing images for “cut off text” which were clearly did not have “cut off text.” We achieved this by changing aspects of our prompt like removing “ZERO TOLERANCE” and changing it to “Only fail if letters are visibly cut off.” Additionally, we adjusted the examples of when to fail to and added examples of when not to fail. As a result of these changes, the images almost always eventually passed and rarely had to go to the “nuclear” option, while still almost no images were passed that should have failed the audit.
+**(7).** Finally, the seventh and final iteration of our prompt involved updating the OpenAI models we used for image generation, gpt-image-2 instead of DALL-E 3, and for image auditing, gpt-4o to gpt-4.1. This change improved the quality of images generated and the effectiveness of the image auditor, while overall decreasing costs due to less audit-evaluator loops needing to be conducted and the image generator being more responsive to the correction prompts. Therefore, while there are still some aspects where we could continue to adjust, this process has clearly become more effective and efficient at producing good quality images that don’t violate important guardrails through the various prompt engineering techniques we have implemented.
+
+**First Image Auditor Prompt (Step 2)**
+"""
+You are a strict brand compliance auditor reviewing a social media image.
+Carefully examine the image and check it against these criteria:
+
+1. LOGO / BRANDING: If a company logo or brand name appears, it must look correct
+   and professional. Text must not be distorted, cut off, or misspelled.
+
+2. FACTUAL ACCURACY: The image must not contain false or misleading claims.
+   Examples of what to reject: promising free products, exaggerated discounts
+   (e.g. "100% off", "everyone gets $1000"), or health claims not supported
+   by the product context provided below.
+
+3. TEXT LEGIBILITY: Any text overlaid on the image must be fully visible and
+   not cut off at the edges. Every word must be complete and readable.
+
+Product context: {context}
+
+Respond ONLY with a JSON object — no markdown fences:
+{{"passed": true or false, "reason": "brief explanation if failed, else empty string"}}
+"""
+
+**Final Image Auditor Prompt (Step 7)**
+"""
+You are a strict brand compliance auditor reviewing a social media image.
+Examine the image carefully against ALL three criteria below.
+
+CRITERIA 1 — LOGO & BRANDING
+{logo_section}
+
+If a logo or brand name is visible in the image:
+- It must clearly match the description above (if provided).
+- Text in the logo must not be distorted, misspelled, or invented.
+- If the logo looks clearly WRONG (different colors, wrong name, made-up design),
+  FAIL the image. If you are simply unsure, PASS — do not fail on uncertainty alone.
+
+CRITERIA 2 — FACTUAL ACCURACY
+The image must not display outright false or impossible claims. FAIL if you see:
+- Promises of free money or unrealistic cash rewards (e.g. "Win $1000!")
+- "100% off" or similar impossible discounts
+- Medical or health claims not supported by the product context
+- Pricing that clearly contradicts the product context below
+Creative phrasing and marketing enthusiasm are fine — only fail on clear lies.
+
+Product context: {context}
+
+CRITERIA 3 — TEXT LEGIBILITY (HIGH PRIORITY)
+Look at every piece of text in the image, especially near the TOP and BOTTOM edges.
+FAIL only if text is CLEARLY and VISIBLY cut off — meaning letters are actually missing
+their tops, bottoms, or sides. Ask yourself: "Is part of a letter actually gone?"
+
+FAIL if:
+- A letter is visibly truncated — the top, bottom, or side of the letter is cut away
+- A word is partially outside the frame and letters are missing
+- Ascenders (like the top of 'h', 'd', 'f') or descenders (like the bottom of 'g', 'p')
+  are visibly cut off
+
+DO NOT FAIL if:
+- Text is near the edge but all letters are fully visible and complete
+- There is a colored banner or block near the edge with text inside it that is fully readable
+- Text simply starts close to the top — close is NOT the same as clipped
+
+If you are not 100% certain that letters are actually cut off, PASS the image.
+Only fail on clear, obvious, undeniable text clipping. Do not fail on suspicion.
+
+NOTE ON SPELLING: Do NOT flag hashtags (e.g. #SummerTreats, #KiwiMelonMagic) as
+misspellings — combining words in hashtags is intentional and correct. Do NOT flag
+stylized or creative marketing text (e.g. "Summerzz", "Kiwi-licious") as misspellings.
+Only flag obvious real misspellings of the product or brand name itself
+(e.g. "Frozzen Custerd" instead of "Frozen Custard").
+
+IMPORTANT: Be lenient. The goal is to catch genuinely bad images, not to be
+a perfectionist. A good-enough image that serves its marketing purpose should
+PASS. Only fail if something is clearly, obviously wrong.
+
+If you FAIL, return:
+  "reason" — 1-2 plain English sentences describing what is wrong, for a human to read
+  "fix"    — ONE short UPPERCASE command for the image generator, max 8 words
+             e.g. KEEP ALL TEXT FAR FROM EDGES / NO LOGO DISTORTION
+
+If you PASS, return empty strings for both.
+
+Respond ONLY with a JSON object — no markdown fences:
+{{"passed": true or false, "reason": "plain English description if failed, else empty", "fix": "UPPERCASE COMMAND if failed, else empty"}}
+"""
 
 **Prompt Engineer #2 - Research Agent**
 
 
 **Prompt Engineer #3 & #4 - A/B Score & Fuzzy Searching:**
 
-
+---
 ## **Functional Code (The Logic)**
 
 Explore our Agent's Juypter Notebook (`AI_Agent.ipynb`) which helps to tell the "story" of our Agent. There also is a live demo using Rich's UI at the bottom of this notebook or you can just run `demo.py`. Comments on this notebook were made with the help of AI, but do give a good reflection of our joruney developing this AI Agent Prototype.
@@ -66,7 +160,7 @@ Explore our Agent's Juypter Notebook (`AI_Agent.ipynb`) which helps to tell the 
 Here is also a link to walkthrough of this project: {insert link} - if there is no link here, we unfortunately didn't get a chance to record this
 
 
-
+---
 ## **Evaluation & Ethics**
 
 **Testing and Evluating the Agent:**
