@@ -41,15 +41,14 @@ The main model used in this AI Agent Prototype was gpt-4o, a very capable model 
 
 **Not Simple ChatGPT Prompt:**
 Hopefully that gave some insight on why this useful and much more than a simple ChatGPT prompt. However, we also just wanted to outline a few key points of how this goes beyond a basic ChatGPT prompt:
-   1. 
-
-## **The Prompt Iteration Log**
-
-Our Prompt Engineering Journey had many twists and turns and we wanted to highlight the three primary area where we encountered some limitation/failures with our initial prompts but used different techniques to optimize our prompts. The four key areas where this was most notable (*and that we recorded our progress*) was implimenting the Image Auditor, Researching the Company/Product Report, A/B Scorer, and Fuzzy Searching. We will go into more detail with the first two will the last two we will more just discuss about.
 1. Consistent Posts Focus & Style (Company Report, Product Report, Style Guide)
 2. A/B Testing - Quality Checks & Guardrails
 3. Research Structure -> Web Search + URL Links + Files (can do very new or unreleased products/events)
 4. Schedule to Google Calendar
+
+## **The Prompt Iteration Log**
+
+Our Prompt Engineering Journey had many twists and turns and we wanted to highlight the three primary area where we encountered some limitation/failures with our initial prompts but used different techniques to optimize our prompts. The four key areas where this was most notable (*and that we recorded our progress*) was implimenting the Image Auditor, Researching the Company/Product Report, A/B Scorer, and Fuzzy Searching. We will go into more detail with the first two will the last two we will more just discuss about.
 
 **Prompt Engineer #1 - Image Auditor:**
 
