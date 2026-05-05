@@ -37,10 +37,9 @@ from agent_utils import confirm
 load_dotenv()   # reads OPENAI_API_KEY etc. from .env automatically
 
 # MAX_STEPS: how many tool calls the research agent can make before being forced to answer.
-# Lowered from 6 to 3 — in practice 2-3 searches is enough for most companies.
 # Lower = faster research phase. Raise it if you find the agent needs more steps
 # for obscure companies or events with little online presence.
-MAX_STEPS = 3
+MAX_STEPS = 6
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
