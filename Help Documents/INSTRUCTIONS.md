@@ -185,7 +185,7 @@ AI Storage/
 | Image audit retries | `MAX_AUDIT_RETRIES` in `agent_base.py` | 3 (4 total attempts) |
 | Max research steps | `MAX_STEPS` in `agent_research.py` | 6 |
 | Main GPT model | `main_model` in `agent_base.py` | gpt-4o |
-| Reviewer model | `review_model` in `agent_base.py` | gpt-3.5-turbo |
+| Reviewer model | `review_model` in `agent_base.py` | gpt-4o-mini |
 | Audit/Vision model | `audit_model` in `agent_base.py` | gpt-4.1 |
 | Image generation | `gpt-image-2` in `agent_base.py` | gpt-image-2 |
 | Research prompt | `REACT_PROMPT` in `agent_research.py` | see file |

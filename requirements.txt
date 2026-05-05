@@ -26,7 +26,7 @@
 openai>=1.30.0
 python-dotenv>=1.0.0
 
-# Terminal UI (same as class orchestrator.py)
+# Terminal UI
 rich>=14.0.0
 
 # Web search (free, no API key — same as class requirements.txt)

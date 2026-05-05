@@ -78,7 +78,7 @@ The notebook (`AI_Agent.ipynb`) and the terminal demo (`demo.py`) both follow th
 
 **Models used:**
 - `main_model` (`gpt-4o`) — captions, research, style guide
-- `review_model` (`gpt-3.5-turbo`) — A/B caption scoring
+- `review_model` (`gpt-4o-mini`) — A/B caption scoring
 - `audit_model` (`gpt-4.1`) — image auditor and vision tasks
 - Image generation uses `gpt-image-2`
 

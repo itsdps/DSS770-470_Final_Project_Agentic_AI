@@ -148,7 +148,7 @@ class BaseAgent:
     def __init__(self, name: str, openai_key: str,
                  review_key: str = None,
                  main_model: str = "gpt-4o",
-                 review_model: str = "gpt-3.5-turbo",
+                 review_model: str = "gpt-4o-mini",  # Upgraded from gpt-3.5-turbo (May 2026)
                  audit_model: str = "gpt-4.1",    # Image auditor — gpt-4.1 outperforms gpt-4o on vision tasks
                                                    # at 83% lower cost. Upgrade from gpt-4o (Apr 2026).
                  ab_threshold: float = 9.0,
