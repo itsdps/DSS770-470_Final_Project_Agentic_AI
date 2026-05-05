@@ -284,17 +284,22 @@ class BaseAgent:
                 f"  9.0-9.5  Excellent (10-20% of posts). Feels like it could only be for\n"
                 f"           this exact brand. Needs at least 2 of 3: specific opener,\n"
                 f"           creative CTA, unique product detail.\n\n"
-                f"  10.0     Perfect. Nearly impossible — reserve for truly exceptional posts.\n\n"
+                f"  10.0     Perfect (5% of posts). Genuinely outstanding — scroll-stopping,\n"
+                f"           brand-specific, creative CTA, matches all context requirements,\n"
+                f"           and feels completely original. Rare but possible.\n\n"
                 f"Brand context: {context[:400]}\n\n"
                 f"Post:\n{candidate.get('caption', '')}\n\n"
                 f"Think step by step:\n"
-                f"1. Is the opener generic or specific?\n"
-                f"2. Is the CTA vague or creative?\n"
-                f"3. Could this be for a competitor?\n"
-                f"4. What is the ONE score that best fits?\n\n"
+                f"1. Is the opener generic or specific to this brand/product?\n"
+                f"2. Is the CTA vague or creative and actionable?\n"
+                f"3. Could this caption be for a competitor with zero changes?\n"
+                f"4. Does this post match the platform format and any specific requests\n"
+                f"   in the brand context (e.g. 'make it interactive', 'seasonal theme')?\n"
+                f"5. What is the ONE score that best fits all of the above?\n\n"
                 f"Respond ONLY with JSON — no markdown:\n"
                 f'{{"opener": "generic|specific", "cta": "vague|creative", '
-                f'"could_be_competitor": true|false, "score": <number>, "reason": "one sentence"}}'
+                f'"could_be_competitor": true|false, "matches_context": true|false, '
+                f'"score": <number>, "reason": "one sentence"}}'
             )
             review_data = _safe_json(self._review_chat(review_prompt))
             try:
