@@ -12,8 +12,8 @@ Flow:
 
 Prompt Engineering artifact: DATE_PARSE_PROMPT
   Interprets natural language like "2 on June 5th and 1 two days later"
-  into structured date assignments. Good before/after story — vague prompt
-  misreads intent, specific prompt with examples handles edge cases correctly.
+  into structured date assignments — handles natural language like
+  '2 on June 5th and 1 two days later' correctly.
 """
 
 import json

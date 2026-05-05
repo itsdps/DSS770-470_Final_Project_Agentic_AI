@@ -71,7 +71,7 @@ def print_receipt(receipt: dict):
 #   - Month, scheduling flag, image mode, additional notes
 #
 # This is similar to the intent classification / entity extraction pattern
-# from class (prompts_text_usecases.py sentiment_analysis) — natural language
+# Uses the intent classification / entity extraction pattern — natural language
 # in, structured labels out. Here we do it with regex instead of GPT for speed,
 # since the pattern is predictable enough not to need a model call.
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -188,7 +188,7 @@ def _parse_image_mode(text: str, platforms_str: str) -> str:
          (uses the first platform if multiple)
 
     This function is separated out so it's easy to find and improve
-    for the prompt engineering section of the report.
+    so it does not need a model call.
     """
     text_lower = text.lower()
 

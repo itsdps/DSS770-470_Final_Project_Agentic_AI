@@ -2,7 +2,7 @@
 agent_parallel.py
 
 Parallel workflow orchestrator — mirrors the ParallelWorkflow class from
-the class notebook (workflows/parallel_workflow.py) almost exactly.
+the parallel workflow pattern used in agentic AI systems.
 
 The only additions vs the class version:
   - One agent per post (not just one per platform) so N posts run in parallel
@@ -17,11 +17,10 @@ from typing import List, Dict
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PARALLEL WORKFLOW
-# This mirrors the ParallelWorkflow class from 07_workflow_multitasking.ipynb
-# and 08_workflow_parallelization.ipynb in class.
+# PARALLEL WORKFLOW
+# Runs multiple platform agents simultaneously using ThreadPoolExecutor.
 #
-# Key difference from class: class used asyncio + AsyncOpenAI + asyncio.gather().
-# This project uses ThreadPoolExecutor + sync OpenAI — same parallelism effect
+# Uses ThreadPoolExecutor + sync OpenAI for parallelism —
 # for I/O-bound API calls, but avoids needing async/await throughout all agents.
 #
 # How it works: all agents in a batch start at the same time in separate threads.
@@ -92,7 +91,7 @@ def run_all_posts(agents_per_post: List[List], product_brief_base: dict,
     """
     Convenience wrapper: runs one parallel workflow per post number.
 
-    In the class notebook all agents shared one product_brief.
+    Multiple posts need separate briefs with their own post number.
     Here we need N posts, so we run the workflow N times (one per post),
     but still in parallel across platforms within each post.
 

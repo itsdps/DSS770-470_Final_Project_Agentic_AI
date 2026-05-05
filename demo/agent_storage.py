@@ -83,7 +83,7 @@ class Storage:
         """
         Per-product style reference folder — screenshots of posts to imitate.
         Lives inside the Images folder as a subfolder called 'references'.
-        These are passed to GPT Vision during caption drafting so the agent
+        These are passed to gpt-4.1 during caption drafting so the agent
         can see example posts and match their style, humor, and energy.
         Separate from product photos which go in the root images_dir.
         """
@@ -144,8 +144,7 @@ class Storage:
         """
         Returns style reference screenshots from the references/ subfolder.
         These are screenshots of posts the user wants the agent to imitate —
-        passed to GPT Vision during caption drafting using the class pattern
-        from 01_langchain_basics.ipynb (HumanMessage with image_url blocks).
+        passed to gpt-4.1 as multimodal image_url blocks during caption drafting.
         """
         d = self.references_dir(company, product)
         if not d.exists():

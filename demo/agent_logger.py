@@ -1,8 +1,11 @@
 """
 agent_logger.py
-Writes two log files to the company's Log Files folder:
-  1. {date} – {company} – {product} – Receipt.txt  (main run log)
-  2. {date} – {company} – {product} – Audit.txt    (caption + image audit results)
+Writes one combined log file to the company's Log Files folder after each run:
+  {date} – {company} – {product} – Receipt.txt
+
+The file contains two sections:
+  1. RECEIPT  — full run summary with captions and A/B scores
+  2. CONTENT AUDIT — caption and image audit results per post
 """
 
 import json, datetime
@@ -126,6 +129,12 @@ class Logger:
                 f"    {post.get('caption','')[:200]}...",
                 "",
             ]
+
+            # A/B scorer reason
+            score_reason = post.get("score_reason", "")
+            if score_reason:
+                lines.append(f"    SCORE REASON:   {score_reason}")
+                lines.append("")
 
             # Caption audit
             cap_audit  = post.get("caption_audit_result", {})
