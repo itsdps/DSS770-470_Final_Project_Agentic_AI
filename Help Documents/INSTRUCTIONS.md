@@ -43,7 +43,17 @@ GCAL_CREDENTIALS=credentials.json  ← only needed for scheduling
 
 Get your OpenAI key at: https://platform.openai.com/api-keys
 
-### 3. (Optional) Google Calendar setup
+### 3. Verify your OpenAI organization for gpt-image-2
+
+This project uses `gpt-image-2` for image generation. OpenAI requires organization verification before this model can be accessed via the API.
+
+1. Go to https://platform.openai.com/settings/organization/general
+2. Click **Verify Organization** and follow the steps
+3. Wait up to 15 minutes for access to propagate
+
+> **Note:** If you skip this step, image generation will fail with a 403 error. The agent will catch this and display a warning, but no images will be generated until verification is complete. All other features (captions, research, scheduling) work without verification.
+
+### 4. (Optional) Google Calendar setup
 
 Only needed if you want the agent to schedule posts. Skip this on your first run.
 
