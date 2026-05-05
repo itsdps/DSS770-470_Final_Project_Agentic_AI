@@ -255,58 +255,40 @@ class BaseAgent:
             # V3 rebalanced: well-written on-brand posts should score 7.5-8.0,
             # exceptional posts 9.0+, truly weak posts below 7.0.
             review_prompt = (
-                f"Score this {platform.upper()} social media post from 0 to 10.\n"
-                f"Use ONLY these values: 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0\n\n"
-                f"PLATFORM CONTEXT — score against what's appropriate for this format:\n"
-                + (
-                    f"  INSTAGRAM: Longer format. Hold it to a higher standard — penalize\n"
-                    f"  padding, filler sentences, or repetition. A long caption that rambles\n"
-                    f"  should score lower than a tight one. Reward genuine storytelling,\n"
-                    f"  emotional hook, and brand-specific detail that earns the length.\n\n"
-                    if platform.lower() == "instagram" else
-                    f"  TWITTER/X: Short format (280 chars). Brevity is the constraint —\n"
-                    f"  reward a punchy hook, wit, and a specific CTA packed into few words.\n"
-                    f"  A tweet that perfectly nails tone and CTA in one line deserves 9.0.\n"
-                    f"  Don't penalize for being short — penalize for being generic or bland.\n\n"
-                    if platform.lower() in ("twitter", "x") else
-                    f"  BLOG: Long-form. Reward depth, structure, and brand voice.\n\n"
-                )
-                + f"SCORING GUIDE — pick the ONE that best fits:\n"
-                f"  6.0-6.5  Weak (10-20% of posts). Generic enough to be for any brand.\n"
-                f"           Example: opens with 'Summer is here!' or 'Are you ready?'\n"
-                f"           AND has a vague CTA like 'check it out' or 'try it today'.\n\n"
-                f"  7.0-7.5  Decent (most posts land here). Competent but forgettable.\n"
-                f"           Could swap the brand name for a competitor and it still works.\n"
-                f"           Hashtags are generic (#Summer #Fun). No standout moment.\n\n"
-                f"  8.0-8.5  Good (most posts land here). Clearly for this specific brand.\n"
-                f"           Mentions at least one specific product detail. One minor weakness\n"
-                f"           (slightly predictable opener OR generic CTA, not both).\n\n"
-                f"  9.0-9.5  Excellent (10-20% of posts). Feels like it could only be for\n"
-                f"           this exact brand. Needs at least 2 of 3: specific opener,\n"
-                f"           creative CTA, unique product detail.\n\n"
-                f"  10.0     Perfect (5% of posts). Genuinely outstanding — scroll-stopping,\n"
-                f"           brand-specific, creative CTA, matches all context requirements,\n"
-                f"           and feels completely original. Rare but possible.\n\n"
+                f"Evaluate this {platform.upper()} social media post. Answer each question YES or NO only.\n\n"
                 f"Brand context: {context[:400]}\n\n"
+                f"Specific request: {candidate.get('additional_info', 'none')}\n\n"
                 f"Post:\n{candidate.get('caption', '')}\n\n"
-                f"Think step by step:\n"
-                f"1. Is the opener generic or specific to this brand/product?\n"
-                f"2. Is the CTA vague or creative and actionable?\n"
-                f"3. Could this caption be for a competitor with zero changes?\n"
-                f"4. Does this post match the platform format and any specific requests\n"
-                f"   in the brand context (e.g. 'make it interactive', 'seasonal theme')?\n"
-                f"5. What is the ONE score that best fits all of the above?\n\n"
+                f"Questions:\n"
+                f"Q1: Does the opening line avoid generic phrases like 'Summer is here!', 'Are you ready?', 'Introducing...', 'Dive into'?\n"
+                f"Q2: Is the CTA specific and creative (not just 'check it out', 'try it today', 'visit us', 'RT & follow')?\n"
+                f"Q3: Does it mention a specific product detail unique to this brand (not generic)?\n"
+                f"Q4: Could this caption NOT work for a competitor brand without changes?\n"
+                f"Q5: Does it match the specific request in the context (e.g. giveaway format, interactive element)?\n"
+                f"Q6: Is the tone and energy appropriate for {platform.upper()}?\n\n"
                 f"Respond ONLY with JSON — no markdown:\n"
-                f'{{"opener": "generic|specific", "cta": "vague|creative", '
-                f'"could_be_competitor": true|false, "matches_context": true|false, '
-                f'"score": <number>, "reason": "one sentence"}}'
+                f'{{"q1": "YES|NO", "q2": "YES|NO", "q3": "YES|NO", "q4": "YES|NO", "q5": "YES|NO", "q6": "YES|NO", "reason": "one sentence"}}'
             )
             review_data = _safe_json(self._review_chat(review_prompt))
             try:
-                score = float(review_data.get("score", 7.0))
-                # Snap to valid half-point values
-                score = round(max(0.0, min(10.0, score)) * 2) / 2
-            except (TypeError, ValueError):
+                # Calculate score from yes/no answers — model can't anchor to a number
+                q_scores = {q: str(review_data.get(q, "NO")).upper().startswith("Y")
+                            for q in ["q1", "q2", "q3", "q4", "q5", "q6"]}
+                yes_count = sum(q_scores.values())
+                # Q5 (matches specific request) and Q6 (platform appropriate) are bonus
+                # Both must be YES to reach 9.0+, making high scores harder to hit
+                bonus = q_scores.get("q5", False) and q_scores.get("q6", False)
+                # Base score from first 4 questions (0-4 yes answers)
+                base_map = {0: 5.0, 1: 6.0, 2: 7.0, 3: 7.5, 4: 8.0}
+                base = base_map.get(min(sum([q_scores[q] for q in ["q1","q2","q3","q4"]]), 4), 7.0)
+                # Bonus questions push into 9.0+ territory only if base is already 8.0
+                if base == 8.0 and bonus:
+                    score = 9.0 if yes_count < 6 else 9.5
+                elif base == 8.0 and (q_scores.get("q5") or q_scores.get("q6")):
+                    score = 8.5  # one bonus question = 8.5
+                else:
+                    score = base
+            except (TypeError, ValueError, AttributeError):
                 score = 7.0
 
             print(f"      [{self.name}] Post {post_num} — attempt {attempt}: score {score:.1f}/10")

@@ -165,13 +165,15 @@ def parse_request(text: str) -> dict:
     # Image mode — parse AFTER platform is known
     receipt["images"] = _parse_image_mode(text, receipt["platforms"])
 
-    # Additional info
-    m = re.search(r"\.\s+(.+)$", text.strip())
+    # Additional info — look for "Make it..." after any sentence ending (. ! ?)
+    m = re.search(r"[.!?]\s+(.+)$", text.strip())
     if m:
         receipt["additional_info"] = m.group(1).strip()
-    elif re.search(r"interactive|funny|seasonal|urgent", text, re.I):
-        extras = re.findall(r"(?:make it|please)\s+(.+?)(?:\.|$)", text, re.I)
-        receipt["additional_info"] = "; ".join(extras)
+    elif re.search(r"interactive|funny|seasonal|urgent|giveaway|discount|sale", text, re.I):
+        extras = re.findall(r"(?:make it|please|it'?s a|it is a)\s+(.+?)(?:[.!?]|$)", text, re.I)
+        receipt["additional_info"] = "; ".join(extras) if extras else re.search(
+            r"(giveaway|interactive|funny|seasonal|urgent|discount|sale)", text, re.I
+        ).group(0).capitalize()
 
     return receipt
 
