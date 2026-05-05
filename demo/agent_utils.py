@@ -259,6 +259,9 @@ def interactive_receipt_editor(receipt: dict) -> dict:
                         print(f"     Current count ({receipt['num_posts']}) is the sum of posts per platform.")
                         print(f"     To change counts, re-enter your request.")
                         continue
+                    # Single platform — clear _raw_request so notebook doesn't
+                    # re-derive the count from the original text
+                    receipt["_raw_request"] = ""
                 # Guardrail on the images field
                 if matched_key == "images":
                     normalized = _normalize_image_value(value)
