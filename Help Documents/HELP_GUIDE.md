@@ -50,9 +50,9 @@ The notebook (`AI_Agent.ipynb`) and the terminal demo (`demo.py`) both follow th
 | `resolve_style_guide()` | Generates a style guide JSON from the company/product reports + your reference screenshots |
 
 **Important design decisions:**
-- Uses **function calling** (structured `tool_calls`) instead of regex parsing. The class notebook used `ACTION_RE` to parse tool calls from raw text — this is more reliable.
+- Uses **function calling** (structured `tool_calls`) instead of regex parsing — more reliable than extracting tool calls from raw text.
 - `MAX_STEPS = 6` — tunable tradeoff between research depth and time.
-- If more than one field is still `null` after `MAX_STEPS`, it asks you for a URL or file to help.
+- After `MAX_STEPS`, if **1 field** is null it asks you one targeted question for that field. If **2+ fields** are null it asks for a URL or file.
 
 ---
 
@@ -64,17 +64,23 @@ The notebook (`AI_Agent.ipynb`) and the terminal demo (`demo.py`) both follow th
 
 | Function | What it does |
 |---|---|
-| `_ab_loop()` | Draft → score → keep best → repeat up to `max_tries` times. This is the A/B scoring loop |
+| `_ab_loop()` | Draft → score → keep best → repeat up to 5 times. This is the A/B scoring loop |
 | `_chat()` | Plain text call to OpenAI — safe to call from threads |
 | `_chat_content()` | Multimodal call — accepts text + images (used for vision-based caption drafting with reference screenshots) |
-| `_audit_image()` | Calls GPT Vision to check the generated image — returns `passed`, `reason`, and `fix` |
-| `_generate_image()` | Calls DALL-E 3 to create a new image from scratch |
+| `_audit_image()` | Calls gpt-4.1 with image input to check the generated image — returns `passed`, `reason`, and `fix` |
+| `_generate_image()` | Calls gpt-image-2 to create a new image from scratch |
 | `_enhance_image()` | Calls the image edits endpoint to enhance a real photo |
-| `_build_image_prompt()` | Builds the instruction string sent to DALL-E or the edit endpoint |
+| `_build_image_prompt()` | Builds the instruction string sent to gpt-image-2 for generation or enhancement |
 
 **Important prompts in this file:**
-- `IMAGE_AUDIT_PROMPT` — what GPT Vision checks: logo accuracy, false claims, text legibility, text cutoff at edges
+- `IMAGE_AUDIT_PROMPT` — what gpt-4.1 checks when analyzing the image: logo accuracy, false claims, text legibility, text cutoff at edges
 - `CAPTION_AUDIT_PROMPT` — narrow safety check: only fails for outright lies or harmful language
+
+**Models used:**
+- `main_model` (`gpt-4o`) — captions, research, style guide
+- `review_model` (`gpt-3.5-turbo`) — A/B caption scoring
+- `audit_model` (`gpt-4.1`) — image auditor and vision tasks
+- Image generation uses `gpt-image-2`
 
 ---
 
@@ -99,7 +105,7 @@ The notebook (`AI_Agent.ipynb`) and the terminal demo (`demo.py`) both follow th
 | 3 | Nuclear: `NO TEXT IN THE IMAGE AT ALL. ZERO WORDS. ZERO LETTERS` |
 | 4 | Final audit — if still fails, no image is saved |
 
-This escalation pattern mirrors `05_emotion_prompting.ipynb` from class — urgency at the top of the prompt changes model behavior.
+This escalation uses the emotion prompting technique — urgency at the top of the prompt changes model behavior.
 
 ---
 
@@ -118,7 +124,7 @@ This escalation pattern mirrors `05_emotion_prompting.ipynb` from class — urge
 - Round 1: [Instagram, Twitter] — run together
 - Round 2: [Twitter] — alone
 
-This mirrors `07_workflow_multitasking.ipynb` from class, which ran Twitter + LinkedIn + Blog together. The class used `asyncio`; this project uses `ThreadPoolExecutor` — same parallelism for I/O-bound API calls, without needing `async/await` everywhere.
+Uses `ThreadPoolExecutor` for parallelism — same effect as asyncio for I/O-bound API calls, without needing `async/await` throughout all agent methods.
 
 ---
 
@@ -225,12 +231,12 @@ Two independent audit layers run on every post:
 - Veto with retry — if failed, caption is regenerated
 
 **Layer 2 — Image auditor** (visual)
-- GPT Vision checks: logo correct, no false claims, all text fully visible and not clipped
+- gpt-4.1 analyzes the image: logo correct, no false claims, all text fully visible and not clipped
 - 4-attempt escalation with increasing urgency (see table above)
 - If all attempts fail, no image is used — caption is saved alone
 - User can choose to save the failed audit image anyway (marked as `Failed Audit`)
 
-Both audit results are written to `Audit.txt` including the correction prompts sent on each attempt.
+Both audit results are written to the combined `Receipt.txt` log file, including the correction prompts sent on each attempt.
 
 **Design philosophy:** "No image is better than a bad image." The auditor is conservative — it would rather produce a caption-only post than publish a post with clipped text or a wrong logo.
 
@@ -243,7 +249,7 @@ Both audit results are written to `Audit.txt` including the correction prompts s
 | `REACT_PROMPT` | `agent_research.py` | Controls the ReAct research loop |
 | `COMPANY_REPORT_PROMPT` | `agent_research.py` | What fields to extract for the company report |
 | `PRODUCT_REPORT_PROMPT` | `agent_research.py` | What fields to extract for the product report |
-| `IMAGE_AUDIT_PROMPT` | `agent_base.py` | GPT Vision audit criteria |
+| `IMAGE_AUDIT_PROMPT` | `agent_base.py` | Image audit criteria sent to gpt-4.1 |
 | `CAPTION_AUDIT_PROMPT` | `agent_base.py` | Caption safety check |
 | `DATE_PARSE_PROMPT` | `agent_schedule.py` | Natural language date parsing |
 | `AUTO_DATE_PROMPT` | `agent_schedule.py` | GPT date suggestion |

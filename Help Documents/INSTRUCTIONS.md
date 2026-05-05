@@ -16,11 +16,11 @@ An AI agent that researches companies and products, then creates consistent, on-
 | `agent_posts.py` | Instagram, Twitter, Blog agent classes |
 | `agent_parallel.py` | Runs platform agents in parallel (ThreadPoolExecutor) |
 | `agent_schedule.py` | Natural language date parsing + Google Calendar |
-| `agent_logger.py` | Writes Receipt and Audit log files after each run |
+| `agent_logger.py` | Writes one combined Receipt log file per run (receipt + audit) |
 | `agent_utils.py` | Request parser, receipt editor, helper functions |
 | `requirements.txt` | Python dependencies |
 | `.env` | Your API keys — fill this in before running |
-| `.gitignore` | Keeps your `.env` and `credentials.json` out of GitHub |
+| `.gitignore` | Keeps your `.env` and credentials out of GitHub |
 
 ---
 
@@ -106,7 +106,7 @@ Create 1 Instagram and 2 Twitter posts for Starbucks Pumpkin Spice Latte in Octo
 | Mode | Behavior |
 |---|---|
 | **Provided Images** | Uses photos from your image library (default for Instagram) |
-| **AI Generated** | Generates new images using DALL-E 3 |
+| **AI Generated** | Generates new images using gpt-image-2 |
 | **No** | Caption only, no image (default for Twitter and Blog) |
 
 To add photos to your image library, follow the prompts in Step 7.6.
@@ -171,11 +171,13 @@ AI Storage/
 | What | Where | Default |
 |---|---|---|
 | A/B score threshold | `ab_threshold` in `agent_base.py` | 9.0 / 10 |
-| A/B max attempts | `ab_max_tries` in `agent_base.py` | 3 |
+| A/B max attempts | `ab_max_tries` in `agent_base.py` | 5 |
 | Image audit retries | `MAX_AUDIT_RETRIES` in `agent_base.py` | 3 (4 total attempts) |
 | Max research steps | `MAX_STEPS` in `agent_research.py` | 6 |
 | Main GPT model | `main_model` in `agent_base.py` | gpt-4o |
 | Reviewer model | `review_model` in `agent_base.py` | gpt-3.5-turbo |
+| Audit/Vision model | `audit_model` in `agent_base.py` | gpt-4.1 |
+| Image generation | `gpt-image-2` in `agent_base.py` | gpt-image-2 |
 | Research prompt | `REACT_PROMPT` in `agent_research.py` | see file |
 | Date parse prompt | `DATE_PARSE_PROMPT` in `agent_schedule.py` | see file |
 

@@ -1,13 +1,13 @@
 """
 agent_base.py
 
-Base class for all platform agents — mirrors the BaseAgent pattern from class.
+Base class for all platform agents — follows the base class inheritance pattern.
 Each platform agent (Instagram, Twitter, Blog) inherits from this and only
 needs to implement its own execute() method.
 
 Image generation is handled here as shared methods so all platform agents
 can use them without duplicating code:
-  _generate_image() — calls DALL-E (with optional reference images via GPT Vision)
+  _generate_image() — calls gpt-image-2 (with optional reference image style description)
   _enhance_image()  — calls images/edits endpoint to enhance a real photo
   _build_image_prompt() — builds the instruction passed to DALL-E or the edit
                           endpoint, always includes the caption for cohesion.
@@ -24,10 +24,8 @@ from openai import OpenAI   # sync client — threads handle parallelism, not as
 
 # ── Image audit prompt ───────────────────────────────────────────────────────
 # Prompt Engineering artifact — this is the guardrail for generated images.
-# GPT Vision checks the image against these criteria and returns a pass/fail.
-# Good before/after for report: vague criteria ("looks good?") vs specific
-# criteria below. The specificity of the rules directly affects what gets caught.
-# Mentioned in Slide 6 (Ethics & Guardrails).
+# gpt-4.1 checks the image against these criteria and returns a pass/fail.
+# The specificity of the criteria directly affects what gets caught.
 
 IMAGE_AUDIT_PROMPT = """
 You are a strict brand compliance auditor reviewing a social media image.
@@ -102,7 +100,7 @@ MAX_AUDIT_RETRIES = 3   # 4 total attempts: normal → emotional → nuclear →
 # Narrow guardrail — only checks for outright lies and hateful/harmful language.
 # Quality, creativity, and brand voice are handled by the A/B scorer.
 # This is a veto-only check: passes unless something is genuinely harmful.
-# Slide 6 guardrail — second layer alongside the image auditor.
+# Caption safety guardrail — second layer alongside the image auditor.
 
 CAPTION_AUDIT_PROMPT = """
 You are a content safety auditor reviewing a social media caption.
@@ -144,17 +142,17 @@ Respond ONLY with a JSON object — no markdown fences:
 class BaseAgent:
     """
     Provides a shared OpenAI client and agent name to all platform agents.
-    Mirrors the BaseAgent from class (domo_agents/base_agent.py).
+    Base class shared by all platform agents.
     """
 
     def __init__(self, name: str, openai_key: str,
                  review_key: str = None,
                  main_model: str = "gpt-4o",
                  review_model: str = "gpt-3.5-turbo",
-                 audit_model: str = "gpt-4.1",    # Vision auditor — gpt-4.1 outperforms gpt-4o on vision
+                 audit_model: str = "gpt-4.1",    # Image auditor — gpt-4.1 outperforms gpt-4o on vision tasks
                                                    # at 83% lower cost. Upgrade from gpt-4o (Apr 2026).
                  ab_threshold: float = 9.0,
-                 ab_max_tries: int = 3):
+                 ab_max_tries: int = 5):
         self.name          = name
         self.openai_client = OpenAI(api_key=openai_key)
         self.review_client = OpenAI(api_key=review_key or openai_key)
@@ -187,8 +185,8 @@ class BaseAgent:
     def _chat_content(self, content: list, model: str = None, temp: float = 0.7) -> str:
         """
         Multimodal OpenAI call — accepts a content list with text and image blocks.
-        Mirrors the HumanMessage pattern from class 01_langchain_basics.ipynb
-        Example 7 (Vision API):
+        Follows the multimodal message pattern
+        Example 7 (multimodal image input):
           content=[
             {"type": "text", "text": "..."},
             {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,..."}}
@@ -257,46 +255,62 @@ class BaseAgent:
             # V3 rebalanced: well-written on-brand posts should score 7.5-8.0,
             # exceptional posts 9.0+, truly weak posts below 7.0.
             review_prompt = (
-                f"You are a social media content reviewer. Be fair but discerning.\n"
-                f"Rate this {platform.upper()} post from 0-10.\n\n"
-                f"SCORING GUIDE:\n"
-                f"  9-10: Exceptional. Highly specific, memorable, stops someone mid-scroll.\n"
-                f"        Perfect CTA, strong brand voice, completely original. Rare.\n"
-                f"  8-8.5: Good. Well-written and on-brand but has at least one weakness —\n"
-                f"        a slightly generic phrase, a predictable hashtag, or a CTA that\n"
-                f"        could be sharper. Most professionally written posts land here.\n"
-                f"  7-7.5: Decent. Gets the job done but feels a bit formulaic. Could apply\n"
-                f"        to similar brands with minor changes. Needs one more iteration.\n"
-                f"  5-6:  Weak. Generic, cliché, or missing personality. Forgettable.\n"
-                f"  0-4:  Poor. Off-brand, misleading, or completely off-brief.\n\n"
-                f"DEDUCT 0.5 for each of these issues (be specific in your reasoning):\n"
-                f"  - Uses a generic opening phrase ('Summer is here!', 'Are you ready?')\n"
-                f"  - CTA is weak or vague ('check it out', 'try it today')\n"
-                f"  - Hashtags feel generic or forced for this specific brand/product\n"
-                f"  - Caption could apply to a competitor's product with zero changes\n"
-                f"  - Emojis used excessively or randomly without adding meaning\n\n"
-                f"ADD 0.5 for each of these strengths:\n"
-                f"  - Mentions a specific product detail unique to this brand\n"
-                f"  - CTA is creative and specific (not just 'visit us')\n"
-                f"  - Opening line is genuinely surprising or scroll-stopping\n"
-                f"  - Tone perfectly matches the brand's established voice\n\n"
-                f"Post caption:\n{candidate.get('caption', '')}\n\n"
-                f"Context summary:\n{context[:800]}\n\n"
-                f"Respond ONLY with JSON — no markdown fences:\n"
-                f'{{"score": <float 0-10>, "reason": "specific reason for this score"}}'
+                f"Score this {platform.upper()} social media post from 0 to 10.\n"
+                f"Use ONLY these values: 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0, 9.5, 10.0\n\n"
+                f"PLATFORM CONTEXT — score against what's appropriate for this format:\n"
+                + (
+                    f"  INSTAGRAM: Longer format. Hold it to a higher standard — penalize\n"
+                    f"  padding, filler sentences, or repetition. A long caption that rambles\n"
+                    f"  should score lower than a tight one. Reward genuine storytelling,\n"
+                    f"  emotional hook, and brand-specific detail that earns the length.\n\n"
+                    if platform.lower() == "instagram" else
+                    f"  TWITTER/X: Short format (280 chars). Brevity is the constraint —\n"
+                    f"  reward a punchy hook, wit, and a specific CTA packed into few words.\n"
+                    f"  A tweet that perfectly nails tone and CTA in one line deserves 9.0.\n"
+                    f"  Don't penalize for being short — penalize for being generic or bland.\n\n"
+                    if platform.lower() in ("twitter", "x") else
+                    f"  BLOG: Long-form. Reward depth, structure, and brand voice.\n\n"
+                )
+                + f"SCORING GUIDE — pick the ONE that best fits:\n"
+                f"  6.0-6.5  Weak (10-20% of posts). Generic enough to be for any brand.\n"
+                f"           Example: opens with 'Summer is here!' or 'Are you ready?'\n"
+                f"           AND has a vague CTA like 'check it out' or 'try it today'.\n\n"
+                f"  7.0-7.5  Decent (most posts land here). Competent but forgettable.\n"
+                f"           Could swap the brand name for a competitor and it still works.\n"
+                f"           Hashtags are generic (#Summer #Fun). No standout moment.\n\n"
+                f"  8.0-8.5  Good (most posts land here). Clearly for this specific brand.\n"
+                f"           Mentions at least one specific product detail. One minor weakness\n"
+                f"           (slightly predictable opener OR generic CTA, not both).\n\n"
+                f"  9.0-9.5  Excellent (10-20% of posts). Feels like it could only be for\n"
+                f"           this exact brand. Needs at least 2 of 3: specific opener,\n"
+                f"           creative CTA, unique product detail.\n\n"
+                f"  10.0     Perfect. Nearly impossible — reserve for truly exceptional posts.\n\n"
+                f"Brand context: {context[:400]}\n\n"
+                f"Post:\n{candidate.get('caption', '')}\n\n"
+                f"Think step by step:\n"
+                f"1. Is the opener generic or specific?\n"
+                f"2. Is the CTA vague or creative?\n"
+                f"3. Could this be for a competitor?\n"
+                f"4. What is the ONE score that best fits?\n\n"
+                f"Respond ONLY with JSON — no markdown:\n"
+                f'{{"opener": "generic|specific", "cta": "vague|creative", '
+                f'"could_be_competitor": true|false, "score": <number>, "reason": "one sentence"}}'
             )
             review_data = _safe_json(self._review_chat(review_prompt))
             try:
-                score = float(review_data.get("score", 5.0))
+                score = float(review_data.get("score", 7.0))
+                # Snap to valid half-point values
+                score = round(max(0.0, min(10.0, score)) * 2) / 2
             except (TypeError, ValueError):
-                score = 5.0
+                score = 7.0
 
             print(f"      [{self.name}] Post {post_num} — attempt {attempt}: score {score:.1f}/10")
 
             if score > best_score:
-                best_score        = score
-                best_post         = candidate
+                best_score         = score
+                best_post          = candidate
                 best_post["score"] = score
+                best_post["score_reason"] = review_data.get("reason", "")
 
             if score >= self.threshold:
                 break
@@ -382,7 +396,7 @@ class BaseAgent:
         """
         Generates a new image using gpt-image-2.
 
-        If reference_images are provided, first asks GPT Vision to describe
+        If reference_images are provided, first asks gpt-4.1 to describe
         their style/mood, then incorporates that into the DALL-E prompt.
         This is the "AI Generated with inspiration" path.
 
@@ -395,7 +409,7 @@ class BaseAgent:
         Returns:
             Raw PNG bytes, or None if generation failed.
         """
-        # If reference images given, ask GPT Vision to describe their style
+        # If reference images given, ask gpt-4.1 to describe their style
         vision_notes = ""
         if reference_images:
             vision_notes = self._describe_images_for_reference(reference_images)
@@ -444,7 +458,7 @@ class BaseAgent:
         """
         Enhances a real photo. previous_rejections is a list of all prior
         audit failure reasons — each becomes its own short punchy correction
-        line at the top of the prompt (emotion prompting pattern from class).
+        line at the top of the prompt (emotion prompting pattern).
         Stacking keeps each rule visible rather than burying them in one sentence.
         """
         # Build stacked correction block — each failure = one short urgent line.
@@ -542,7 +556,7 @@ class BaseAgent:
 
     def _describe_images_for_reference(self, image_paths: list[Path]) -> str:
         """
-        Passes reference images to GPT Vision and asks it to describe
+        Passes reference images to gpt-4.1 and asks it to describe
         the visual style, mood, and color palette.
 
         The description is then folded into the DALL-E prompt so the
@@ -587,7 +601,7 @@ class BaseAgent:
             )
             return resp.choices[0].message.content.strip()
         except Exception as e:
-            print(f"  ⚠️  GPT Vision description failed: {e}")
+            print(f"  ⚠️  Image description failed: {e}")
             return ""
 
 
@@ -595,7 +609,7 @@ class BaseAgent:
                      logo_description: str = "",
                      additional_notes: str = "") -> dict:
         """
-        GPT Vision compliance auditor for generated/enhanced images.
+        gpt-4.1 compliance auditor for generated/enhanced images.
         Checks: logo correctness, factual accuracy, text legibility.
 
         Logo check priority:
@@ -605,7 +619,7 @@ class BaseAgent:
 
         The IMAGE_AUDIT_PROMPT at the top of this file is the prompt
         engineering artifact — specificity of criteria directly affects
-        what gets caught. Good before/after story for the report.
+        what gets caught.
 
         Returns:
             {"passed": bool, "reason": str}
@@ -669,6 +683,6 @@ def _safe_json(text: str) -> dict:
 
 
 def _encode_image(path: Path) -> str:
-    """Base64-encode a local image file for GPT Vision."""
+    """Base64-encode a local image file for multimodal input."""
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")

@@ -43,8 +43,8 @@ console = Console()
 
 # ── Editable prompts ──────────────────────────────────────────────────────────
 
-# Same classification pattern as sentiment_analysis from class
-# (prompts_text_usecases.py) — natural language in, structured label out.
+# Intent classification — natural language in, structured label out
+# Intent classification — natural language in, structured label out.
 # Extended with entity extraction so we know what file to manage.
 INTENT_PROMPT = """
 Classify the user's message and return a JSON object:
@@ -224,14 +224,19 @@ class SocialMediaAgent:
         receipt["company"] = resolved_company
         receipt["product"] = resolved_product
 
-        # Stream the summary — mirrors generate_text_stream() from class
+        # Stream the summary character by character
         console.print()
-        self._stream_print(
-            f"Company: {company_report.get('company_name')} | "
-            f"Industry: {company_report.get('industry')} | "
-            f"Product: {product_report.get('product_name')} | "
-            f"{str(product_report.get('product_description',''))[:100]}"
+        desc = product_report.get('product_description', '') or ''
+        # Show first sentence only — clean and complete rather than mid-sentence cutoff
+        first_sentence = desc.split('.')[0].strip() if desc else 'No description'
+        summary_line = (
+            f"  Company: {company_report.get('company_name')} "
+            f"| Industry: {company_report.get('industry')} "
+            f"| Product: {product_report.get('product_name')}"
         )
+        self._stream_print(summary_line)
+        if first_sentence:
+            self._stream_print(f"  {first_sentence}.")
 
         # ══════════════════════════════════════════════════════════════════════
         # STEP 5: REVIEW REPORTS (OPTIONAL)
@@ -733,7 +738,7 @@ class SocialMediaAgent:
     def _stream_print(self, text: str, delay: float = 0.012):
         """
         Prints text character by character — mirrors generate_text_stream()
-        and demo_streaming() from class openai_client.py. Uses a small delay
+        streaming token-by-token. Uses a small delay
         per character so output flows naturally rather than appearing all at once.
         For pre-known strings (not live API streaming) this simulates the effect.
         """

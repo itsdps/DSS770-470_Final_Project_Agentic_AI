@@ -2,7 +2,7 @@
 agent_posts.py
 
 Three specialized platform agents — each mirrors the TwitterAgent pattern
-from class (domo_agents/twitter_agent.py) but adapted for this project.
+adapted for this project.
 
 Each class:
   • Inherits BaseAgent (shared OpenAI client, A/B loop, image methods)
@@ -14,7 +14,7 @@ Caption always comes first so it can be passed as context to the image methods,
 keeping the caption and image cohesive as a single post.
 
 Parallelism is handled externally by ParallelWorkflow (agent_parallel.py),
-exactly like the class notebook — no async/await needed here.
+no async/await needed here.
 """
 
 import json
@@ -84,7 +84,7 @@ def parse_platforms(platforms) -> list[str]:
 #      and returns the finished post dict
 #
 # Parallel execution: all agents in a batch run simultaneously via
-# agent_parallel.py (ThreadPoolExecutor) — same pattern as 07_workflow_multitasking
+# agent_parallel.py (ThreadPoolExecutor)
 # ═══════════════════════════════════════════════════════════════════════════════
 import random as _random
 _image_counter      = _random.randint(0, 999)
@@ -111,7 +111,7 @@ def _run_caption_audit_loop(agent: BaseAgent, platform: str,
     """
     Runs _ab_loop() then audits the caption for lies and harmful language.
     If audit fails, retries the full _ab_loop() up to MAX_AUDIT_RETRIES times.
-    Mirrors the orchestrator_loop.py revision pattern from class.
+    Uses an iterative revision pattern with feedback loops.
 
     Returns the best post dict with caption_audit_result stored on it.
     """
@@ -213,7 +213,7 @@ def _handle_image(agent: BaseAgent, post: dict, image_mode: str,
             chosen = _pick_image(selected_images)
             print(f"\n  📸 Using image: {chosen.name}")
 
-    # ── Audit loop — mirrors orchestrator_loop.py revision pattern ──────────
+    # ── Audit loop — iterative revision with escalating corrections ──────────
     # All prior rejections are stacked — each becomes a short punchy correction
     # line at the top of the prompt so the model cannot miss any of them.
     all_rejections = []   # grows with each failed attempt
@@ -299,7 +299,11 @@ def _handle_image(agent: BaseAgent, post: dict, image_mode: str,
                 # Attempt 3 → nuclear → generate with NO TEXT, then attempt 4 audits it
                 print("  💥 Nuclear — generating with no text for final audit…")
                 reason_lower = reason.lower()
-                if any(w in reason_lower for w in ("clip", "cut", "edge", "top", "bottom", "spell", "text")):
+                if any(w in reason_lower for w in ("clip", "cut", "edge", "top", "bottom", "text")):
+                    msg = "NO TEXT IN THE IMAGE AT ALL. ZERO WORDS. ZERO LETTERS. PURELY VISUAL"
+                elif any(w in reason_lower for w in ("logo", "brand", "name", "color")):
+                    msg = "NO LOGO. NO BRAND NAME. NO TEXT. PURELY VISUAL PRODUCT SHOT ONLY"
+                elif any(w in reason_lower for w in ("spell", "misspell", "typo")):
                     msg = "NO TEXT IN THE IMAGE AT ALL. ZERO WORDS. ZERO LETTERS. PURELY VISUAL"
                 else:
                     msg = "REMOVE ALL TEXT FROM THE IMAGE. VISUAL ELEMENTS ONLY. NO EXCEPTIONS"
@@ -327,7 +331,7 @@ def _handle_image(agent: BaseAgent, post: dict, image_mode: str,
 #   - Their name and image default
 #   - Their caption instructions (length, hashtags, tone, CTA style)
 # The heavy lifting (A/B scoring, image gen, auditing) is all in BaseAgent.
-# Mirrors the Twitter/LinkedIn/Blog agent pattern from 07_workflow_multitasking.
+# Specialized platform agents — each inherits from BaseAgent and adds its own caption style.
 # ═══════════════════════════════════════════════════════════════════════════════
 # ── Platform agent classes ────────────────────────────────────────────────────
 
@@ -336,7 +340,7 @@ class InstagramAgent(BaseAgent):
     Specialized agent for Instagram content.
     Generates story-driven captions with hashtags.
     Default image mode: Provided Images.
-    Mirrors the TwitterAgent class structure from the class notebook.
+    Specialized agent for Twitter/X posts.
     """
 
     def __init__(self, openai_key: str, review_key: str = None, **kwargs):
@@ -408,7 +412,7 @@ class TwitterAgent(BaseAgent):
     Specialized agent for Twitter/X content.
     Generates punchy, under-280-character tweets with hashtags.
     Default image mode: No. Supports images if explicitly requested.
-    Directly mirrors the TwitterAgent class from the class notebook.
+    Specialized agent for Twitter/X posts.
     """
 
     def __init__(self, openai_key: str, review_key: str = None, **kwargs):
@@ -476,7 +480,7 @@ class BlogAgent(BaseAgent):
     Specialized agent for long-form blog content.
     Generates a full headline + multi-paragraph article.
     Default image mode: No. Supports images if explicitly requested.
-    Mirrors the BlogPostAgent class structure from the class notebook.
+    Specialized agent for long-form blog posts.
     """
 
     def __init__(self, openai_key: str, review_key: str = None, **kwargs):

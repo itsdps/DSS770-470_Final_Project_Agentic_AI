@@ -4,9 +4,9 @@ agent_research.py
 ReAct + Function Calling research agent.
 
 How it works (matches class patterns):
-  - REACT_PROMPT: a plain string like prompt_react_agent.py from class.
+  - REACT_PROMPT: editable plain string for easy iteration.
     It tells GPT how to think (Thought / Action / Pause / Observation).
-  - Four tool schemas (like 01_function_calling.ipynb from class):
+  - Four tool schemas using OpenAI function calling:
       web_search    — searches the web via DuckDuckGo (ddgs, free, no API key)
       fetch_url     — fetches a specific URL the user provides
       read_document — reads an uploaded file (PDF, txt, etc.)
@@ -29,7 +29,7 @@ from pathlib import Path
 
 import httpx                        # still used for fetch_url only
 from ddgs import DDGS               # free web search — same lib as class requirements.txt
-from dotenv import load_dotenv      # same pattern as class openai_client.py
+from dotenv import load_dotenv
 from openai import OpenAI           # sync client — matches class pattern
 from agent_storage import Storage
 from agent_utils import confirm
@@ -37,6 +37,7 @@ from agent_utils import confirm
 load_dotenv()   # reads OPENAI_API_KEY etc. from .env automatically
 
 # MAX_STEPS: how many tool calls the research agent can make before being forced to answer.
+# Tunable tradeoff — more steps = more thorough research but slower and more expensive.
 # Lower = faster research phase. Raise it if you find the agent needs more steps
 # for obscure companies or events with little online presence.
 MAX_STEPS = 6
@@ -48,12 +49,11 @@ MAX_STEPS = 6
 # REACT_PROMPT controls how the agent decides what to search for and when to stop.
 # COMPANY_REPORT_PROMPT and PRODUCT_REPORT_PROMPT control what gets written
 # into the final JSON report. Changing these prompts directly affects output quality.
-# Good before/after story: see notes in memory about null fields bug fix.
+# Changing these prompts directly affects research output quality.
 # ═══════════════════════════════════════════════════════════════════════════════
 # ── ReAct system prompt ───────────────────────────────────────────────────────
 # Extracted as a plain string so you can edit and iterate on it easily.
-# This is your Prompt Engineering artifact for the report — show before/after here.
-# Matches the structure of prompt_react_agent.py from class.
+# Editable prompt — change this to iterate on research quality.
 
 REACT_PROMPT = """
 You are a market research agent. You run in a loop of Thought, Action, PAUSE, Observation.
@@ -155,7 +155,7 @@ Rules:
 # Used when references changed and user wants a light update rather than
 # full regenerate. Blends new reference insights into the existing style guide.
 # Future improvement: replace the numbered menu that triggers this with a
-# free-form input classified by GPT (same sentiment_analysis pattern from class).
+# free-form input classified by GPT (intent classification pattern).
 
 STYLE_TOUCHUP_PROMPT = """
 You are a creative brand strategist updating an existing social media style guide.
@@ -196,7 +196,7 @@ Rules:
 # ═══════════════════════════════════════════════════════════════════════════════
 # RESEARCH AGENT CLASS
 # This is the ReAct + function calling agent that researches companies/products.
-# It works like the 02_react_agent.ipynb from class, but upgraded:
+# ReAct agent — Thought → Action → Observation loop, upgraded to use
 #   - Class used regex (ACTION_RE) to parse tool calls from raw text
 #   - This project uses structured tool_calls via OpenAI function calling
 #     which is more reliable and doesn't break on formatting variations
@@ -212,7 +212,7 @@ class ResearchAgent:
         self.storage = storage
         self.client  = OpenAI(api_key=openai_key)   # sync, like class pattern
 
-        # Tool schemas — same structure as 01_function_calling.ipynb from class
+        # Tool schemas — OpenAI function calling JSON schema format
         self.tools = [
             {
                 "type": "function",
@@ -298,7 +298,7 @@ class ResearchAgent:
         # Substring check misses partial overlaps like "Rita's Italian Ice" vs
         # "Rita's Water Ice". SequenceMatcher gives a 0-1 similarity ratio —
         # 0.6 threshold catches close variants without being too aggressive.
-        # Documented prompt engineering improvement — see Slide 4.
+        # Uses SequenceMatcher ratio + substring containment for fuzzy matching.
         from difflib import SequenceMatcher
         existing = self.storage.list_companies()
         if existing:
@@ -603,7 +603,7 @@ class ResearchAgent:
                         uploaded_file: str = None) -> str:
         """
         Core ReAct + function calling loop.
-        Mirrors the pattern from 01_function_calling.ipynb in class:
+        Core ReAct + function calling loop.
           1. Send messages + tools to GPT
           2. If GPT requests a tool, execute it locally and send result back
           3. Repeat until GPT produces a plain text Answer (no tool call)
@@ -653,7 +653,7 @@ class ResearchAgent:
                     "tool_calls": msg.tool_calls,
                 })
 
-                # Execute each requested tool locally — same pattern as class notebook
+                # Execute each requested tool locally
                 for call in msg.tool_calls:
                     fn_name = call.function.name
                     args    = json.loads(call.function.arguments or "{}")
@@ -677,7 +677,7 @@ class ResearchAgent:
                     print(f"  👁️  Observation: {result[:120]}...")
 
                     # Send the result back as the Observation
-                    # Same "tool" role message structure as class notebook
+                    # Send tool result back to model
                     messages.append({
                         "role":         "tool",
                         "tool_call_id": call.id,
@@ -727,6 +727,71 @@ class ResearchAgent:
         raw    = resp.choices[0].message.content.strip()
         report = _safe_json(raw)
         report["company_name"] = company_name
+
+        # ── Null field check — smart followup based on how many fields are missing ──
+        # 1 null  → ask one targeted clarifying question for that specific field
+        # 2+ null → ask for a URL or document (more efficient for multiple gaps)
+        company_expected = ["industry", "headquarters", "founded", "description",
+                            "logo_description", "target_audience"]
+        null_fields = [f for f in company_expected if not report.get(f)]
+        null_count  = len(null_fields)
+
+        if null_count == 1:
+            field = null_fields[0]
+            friendly = field.replace("_", " ")
+            print(f"\n  ⚠️  One field is missing from the company report: [{friendly}]")
+            answer = input(f"  Do you know the {friendly} for [{company_name}]? "
+                           f"(type your answer or Enter to skip): ").strip()
+            if answer:
+                messages.append({"role": "assistant", "content": raw})
+                messages.append({"role": "user", "content":
+                    f"The user provided this information about [{company_name}]:\n"
+                    f"{friendly}: {answer}\n\n"
+                    f"Update the company report with this information. "
+                    f"Return ONLY valid JSON."
+                })
+                resp2 = self.client.chat.completions.create(
+                    model="gpt-4o", messages=messages, temperature=0.2,
+                )
+                raw2    = resp2.choices[0].message.content.strip()
+                report2 = _safe_json(raw2)
+                if report2 and report2.get("company_name"):
+                    report = report2
+                    print(f"  ✅ Company report updated with your answer.")
+
+        elif null_count > 1:
+            print(f"\n  ⚠️  Company report has {null_count} empty fields after research.")
+            print(f"  Missing: {null_fields}")
+            followup = input(
+                f"  Do you have a URL or file with more info about [{company_name}]? "
+                f"(paste it, or Enter to continue with what we have): "
+            ).strip().strip('"').strip("'")
+            if followup:
+                extra_url  = followup if followup.startswith("http") else None
+                extra_file = followup if not followup.startswith("http") else None
+                print(f"  🔍 Researching with additional source…")
+                followup_result = (
+                    self._tool_fetch_url(extra_url) if extra_url
+                    else self._tool_read_document(extra_file)
+                )
+                if followup_result:
+                    messages.append({"role": "assistant", "content": raw})
+                    messages.append({"role": "user", "content":
+                        f"Additional information from user-provided source:\n"
+                        f"{followup_result[:2000]}\n\n"
+                        f"Rewrite the company report using all information gathered. "
+                        f"Return ONLY valid JSON."
+                    })
+                    resp2 = self.client.chat.completions.create(
+                        model="gpt-4o", messages=messages, temperature=0.2,
+                    )
+                    raw2    = resp2.choices[0].message.content.strip()
+                    report2 = _safe_json(raw2)
+                    if report2 and report2.get("company_name"):
+                        report = report2
+                        print(f"  ✅ Company report updated with additional source.")
+
+        report["company_name"] = company_name
         self.storage.save_company_report(company_name, report)
         return report
 
@@ -764,22 +829,46 @@ class ResearchAgent:
         report = _safe_json(raw)
         report["product_name"] = product_name
 
-        # ── Null field check — if more than 1 field is null, ask user for help ──
-        # Rather than auto-searching again, we ask the user for a URL or document
-        # so they stay in control and can provide the most accurate source.
+        # ── Null field check — smart followup based on how many fields are missing ──
+        # 1 null  → ask one targeted clarifying question for that specific field
+        # 2+ null → ask for a URL or document (more efficient for multiple gaps)
         expected_fields = ["product_description", "price_range", "target_market",
                            "key_features", "theme", "season_availability",
                            "flavors_or_variants"]
-        null_count = sum(1 for f in expected_fields if not report.get(f))
-        if null_count > 1:
+        null_fields = [f for f in expected_fields if not report.get(f)]
+        null_count  = len(null_fields)
+
+        if null_count == 1:
+            field = null_fields[0]
+            friendly = field.replace("_", " ")
+            print(f"\n  ⚠️  One field is missing from the product report: [{friendly}]")
+            answer = input(f"  Do you know the {friendly} for [{product_name}]? "
+                           f"(type your answer or Enter to skip): ").strip()
+            if answer:
+                messages.append({"role": "assistant", "content": raw})
+                messages.append({"role": "user", "content":
+                    f"The user provided this information about [{product_name}]:\n"
+                    f"{friendly}: {answer}\n\n"
+                    f"Update the product report with this information. "
+                    f"Return ONLY valid JSON."
+                })
+                resp2 = self.client.chat.completions.create(
+                    model="gpt-4o", messages=messages, temperature=0.2,
+                )
+                raw2    = resp2.choices[0].message.content.strip()
+                report2 = _safe_json(raw2)
+                if report2 and (report2.get("product_description") or report2.get("product_name")):
+                    report = report2
+                    print(f"  ✅ Product report updated with your answer.")
+
+        elif null_count > 1:
             print(f"\n  ⚠️  Product report has {null_count} empty fields after research.")
-            print(f"  Missing: {[f for f in expected_fields if not report.get(f)]}")
+            print(f"  Missing: {null_fields}")
             followup = input(
                 f"  Do you have a URL or file with more info about [{product_name}]? "
                 f"(paste it, or Enter to continue with what we have): "
             ).strip().strip('"').strip("'")
             if followup:
-                # Run one more pass with the user-provided source
                 extra_url  = followup if followup.startswith("http") else None
                 extra_file = followup if not followup.startswith("http") else None
                 print(f"  🔍 Researching with additional source…")
@@ -796,9 +885,7 @@ class ResearchAgent:
                         f"Return ONLY valid JSON."
                     })
                     resp2 = self.client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=messages,
-                        temperature=0.2,
+                        model="gpt-4o", messages=messages, temperature=0.2,
                     )
                     raw2    = resp2.choices[0].message.content.strip()
                     report2 = _safe_json(raw2)
@@ -815,20 +902,20 @@ class ResearchAgent:
                              extra_refs: list | None = None,
                              reference_images: list | None = None) -> dict:
         """
-        Generates a style guide. If reference_images are provided, uses GPT Vision
+        Generates a style guide. If reference_images are provided, uses gpt-4.1
         to describe their style first, then folds that description into the prompt.
         This means the style guide is directly informed by real example posts.
         """
         print(f"  🤖 Generating style guide…")
 
-        # Get Vision description of reference screenshots if provided
+        # Get gpt-4.1 description of reference screenshots if provided
         vision_style = ""
         if reference_images:
-            print(f"  👁️  Analyzing {len(reference_images)} style reference(s) via Vision…")
+            print(f"  👁️  Analyzing {len(reference_images)} style reference(s) via gpt-4.1…")
             try:
                 vision_style = self._describe_references_for_style(reference_images)
             except Exception as e:
-                print(f"  ⚠️  Vision analysis failed: {e}")
+                print(f"  ⚠️  Image analysis failed: {e}")
 
         vision_block = f"\nStyle insights from reference screenshots:\n{vision_style}" if vision_style else ""
 
@@ -853,7 +940,7 @@ class ResearchAgent:
 
     def _describe_references_for_style(self, reference_images: list) -> str:
         """
-        Passes reference screenshots to GPT Vision and gets a style description.
+        Passes reference screenshots to gpt-4.1 and gets a style description.
         Used during style guide creation so the guide reflects real example posts.
         Mirrors _describe_images_for_reference() in agent_base.py but focused
         on extracting style/tone/humor patterns rather than visual aesthetics.
@@ -890,7 +977,7 @@ class ResearchAgent:
         return resp.choices[0].message.content.strip()
 
     # ── Tool implementations (called locally when GPT requests them) ──────────
-    # Same pattern as the local get_current_weather() function in class notebook
+    # Tool execution — run locally and return result string
 
     def _tool_web_search(self, query: str) -> str:
         """
@@ -992,7 +1079,7 @@ class ResearchAgent:
     def _gpt(self, prompt: str, model: str = "gpt-4o") -> str:
         """
         Simple single-turn GPT call for report writing.
-        Matches generate_text() pattern from class's openai_client.py.
+        Simple GPT text generation helper.
         """
         resp = self.client.chat.completions.create(
             model=model,
