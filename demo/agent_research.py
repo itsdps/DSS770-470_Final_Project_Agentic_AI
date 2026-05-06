@@ -674,7 +674,11 @@ class ResearchAgent:
                         result = f"Unknown tool: {fn_name}"
 
                     observations.append(f"[{fn_name}] {result[:2000]}")
-                    print(f"  👁️  Observation: {result[:120]}...")
+                    # Clean up the preview — strip HTML tags for readability
+                    import re as _re
+                    preview = _re.sub(r'<[^>]+>', ' ', result).strip()
+                    preview = ' '.join(preview.split())[:120]
+                    print(f"  👁️  Observation: {preview}…")
 
                     # Send the result back as the Observation
                     # Send tool result back to model
